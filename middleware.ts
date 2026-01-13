@@ -26,7 +26,7 @@ export async function middleware(request: NextRequest) {
 
   // 1. If not logged in -> Redirect to Login
   if (!user && request.nextUrl.pathname.startsWith('/dashboard')) {
-    return NextResponse.redirect(new URL('/login', request.url))
+    return NextResponse.redirect(new URL('/', request.url))
   }
 
   // 2. If logged in -> Redirect away from Login
