@@ -43,46 +43,100 @@ export async function generateMonthlyInvoices() {
   const supabase = await createClient()
 
   try {
-    // 1. Get all Active Leases
+    // 1. Get Active Leases with their START DATE
     const { data: leases } = await (supabase.from('leases') as any)
-      .select('id, tenant_id, rent_amount')
+      .select('id, tenant_id, rent_amount, start_date')
       .eq('status', 'ACTIVE')
 
     if (!leases || leases.length === 0) {
-      return { success: false, message: "No active leases found in the system." }
+      return { success: false, message: "No active leases found." }
     }
 
-    // 2. DUPLICATE CHECK
-    const startOfMonth = new Date()
-    startOfMonth.setDate(1) 
-    startOfMonth.setHours(0, 0, 0, 0)
-
-    const { data: existingInvoices } = await (supabase.from('invoices') as any)
-      .select('lease_id')
-      .gte('created_at', startOfMonth.toISOString()) 
+    // 2. PREPARE DUPLICATE CHECKER
+    // Get invoices from the last 45 days to verify we haven't already billed this period
+    const lookBackDate = new Date()
+    lookBackDate.setDate(lookBackDate.getDate() - 45)
     
-    const billedLeaseIds = new Set(existingInvoices?.map((inv: any) => inv.lease_id))
+    const { data: recentInvoices } = await (supabase.from('invoices') as any)
+      .select('lease_id, due_date')
+      .gte('created_at', lookBackDate.toISOString())
 
-    // 3. Filter
-    const invoicesToCreate = leases
-      .filter((lease: any) => !billedLeaseIds.has(lease.id))
-      .map((lease: any) => ({
-         lease_id: lease.id,
-         amount: lease.rent_amount,
-         due_date: new Date().toISOString(),
-         status: 'DRAFT', 
-         amount_paid: 0
-      }))
+    // Create a Set of "LeaseID + DueDate" to detect duplicates easily
+    // Format: "lease_123_2026-01-20"
+    const existingBills = new Set(
+      recentInvoices?.map((inv: any) => {
+        const d = new Date(inv.due_date)
+        return `${inv.lease_id}_${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`
+      })
+    )
 
-    // 4. Handle Results
-    if (invoicesToCreate.length === 0) {
-      return { 
-        success: true, 
-        message: "All tenants are up to date. No new invoices needed." 
+    const invoicesToCreate: any[] = []
+    const today = new Date()
+    today.setHours(0, 0, 0, 0) // Reset time to compare dates purely
+
+    // 3. ITERATE EVERY LEASE
+    for (const lease of leases) {
+      if (!lease.start_date) continue
+
+      // A. FIND THE "ANCHOR DAY" (e.g., 20th)
+      const startDate = new Date(lease.start_date)
+      let anchorDay = startDate.getDate()
+
+      // B. CALCULATE TARGET DUE DATE
+      // We start with the Current Month's version of that day
+      let targetDueDate = new Date(today.getFullYear(), today.getMonth(), anchorDay)
+      
+      // Handle End-of-Month Edge Cases (e.g. lease started 31st, but it's Feb)
+      // If setting to 31st rolled over to next month, fix it to last day of current month
+      if (targetDueDate.getMonth() !== today.getMonth()) {
+        targetDueDate = new Date(today.getFullYear(), today.getMonth() + 1, 0)
+      }
+
+      // If this date is already PAST (e.g. today is 21st, target was 20th), 
+      // then the *next* due date is actually next month.
+      if (targetDueDate < today) {
+        targetDueDate = new Date(today.getFullYear(), today.getMonth() + 1, anchorDay)
+         // Handle End-of-Month again for next month
+         const nextMonth = today.getMonth() + 1
+         if (targetDueDate.getMonth() !== (nextMonth % 12)) {
+            targetDueDate = new Date(today.getFullYear(), nextMonth + 1, 0)
+         }
+      }
+
+      // C. THE "7-DAY WINDOW" CHECK
+      // Calculate difference in days
+      const diffTime = targetDueDate.getTime() - today.getTime()
+      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24))
+
+      // Only generate if it's due within the next 7 days (e.g. 0 to 7 days away)
+      if (diffDays >= 0 && diffDays <= 7) {
+        
+        // D. DUPLICATE CHECK
+        // Have we already billed this specific date?
+        const billKey = `${lease.id}_${targetDueDate.getFullYear()}-${targetDueDate.getMonth()}-${targetDueDate.getDate()}`
+        
+        if (!existingBills.has(billKey)) {
+          console.log(`✅ Generatng for Lease ${lease.id}: Due on ${targetDueDate.toDateString()} (in ${diffDays} days)`)
+          
+          invoicesToCreate.push({
+            lease_id: lease.id,
+            amount: lease.rent_amount,
+            due_date: targetDueDate.toISOString(), // THIS FIXES YOUR DISPLAY ISSUE
+            status: 'DRAFT',
+            amount_paid: 0
+          })
+        }
       }
     }
 
-    // 5. Insert
+    // 4. INSERT
+    if (invoicesToCreate.length === 0) {
+      return { 
+        success: true, 
+        message: "No invoices due in the next 7 days." 
+      }
+    }
+
     const { error } = await (supabase.from('invoices') as any).insert(invoicesToCreate)
     if (error) throw error
 
@@ -90,7 +144,7 @@ export async function generateMonthlyInvoices() {
     
     return { 
       success: true, 
-      message: `Successfully generated ${invoicesToCreate.length} new invoices.` 
+      message: `Generated ${invoicesToCreate.length} invoices due this week.` 
     }
 
   } catch (error) {
