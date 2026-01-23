@@ -83,7 +83,6 @@ export async function generateMonthlyInvoices() {
     }
 
     // 5. Insert
-    // FIX: Cast the table reference to 'any'
     const { error } = await (supabase.from('invoices') as any).insert(invoicesToCreate)
     if (error) throw error
 
@@ -107,7 +106,6 @@ export async function approveAndSendInvoices(invoiceIds: string[]) {
   const supabase = await createClient()
   if (!invoiceIds.length) return
 
-  // FIX: Cast the table reference to 'any'
   await (supabase.from('invoices') as any)
     .update({ status: 'PENDING' })
     .in('id', invoiceIds)
@@ -146,7 +144,6 @@ export async function approveAndSendInvoices(invoiceIds: string[]) {
       const msgId = res?.data?.key?.id || res?.messageId
 
       if (success) {
-        // FIX: Cast the table reference to 'any'
         await (supabase.from('invoices') as any)
           .update({ 
             whatsapp_sent: true, 
@@ -155,7 +152,6 @@ export async function approveAndSendInvoices(invoiceIds: string[]) {
           })
           .eq('id', msg.id)
       } else {
-        // FIX: Cast the table reference to 'any'
         await (supabase.from('invoices') as any)
           .update({ delivery_status: 'FAILED' })
           .eq('id', msg.id)
@@ -167,7 +163,7 @@ export async function approveAndSendInvoices(invoiceIds: string[]) {
 }
 
 // ==========================================
-// 4. RECORD PAYMENT (SMART WALLET LOGIC)
+// 4. RECORD PAYMENT (SMART WALLET LOGIC + RECEIPT)
 // ==========================================
 
 export async function recordPayment(formData: FormData) {
@@ -184,9 +180,18 @@ export async function recordPayment(formData: FormData) {
 
   if (!invoiceId) throw new Error("Missing Invoice ID")
 
-  // 2. Fetch Invoice & Lease Details
+  // 2. Fetch Invoice & Lease Details (UPDATED QUERY)
+  // We now fetch tenants(name, phone) and units(unit_number) here too
   const { data: invoice } = await (supabase.from('invoices') as any)
-    .select('*, leases(id, credit_balance)')
+    .select(`
+      *, 
+      leases (
+        id, 
+        credit_balance,
+        tenants (name, phone),
+        units (unit_number)
+      )
+    `)
     .eq('id', invoiceId)
     .single()
 
@@ -237,7 +242,6 @@ export async function recordPayment(formData: FormData) {
 
   // A. Record WALLET Transaction (If used)
   if (walletContribution > 0) {
-    // FIX: Cast to 'any'
     await (supabase.from('payments') as any).insert({
       invoice_id: invoiceId,
       lease_id: leaseId, 
@@ -248,7 +252,6 @@ export async function recordPayment(formData: FormData) {
     })
 
     // Deduct from Lease Wallet
-    // FIX: Cast to 'any'
     await (supabase.from('leases') as any).update({
       credit_balance: currentWallet - walletContribution
     }).eq('id', leaseId)
@@ -256,7 +259,6 @@ export async function recordPayment(formData: FormData) {
 
   // B. Record CASH Transaction (If used)
   if (cashContribution > 0) {
-    // FIX: Cast to 'any'
     await (supabase.from('payments') as any).insert({
       invoice_id: invoiceId,
       lease_id: leaseId, 
@@ -268,7 +270,6 @@ export async function recordPayment(formData: FormData) {
   }
 
   // C. Update Invoice Status
-  // FIX: Cast to 'any'
   const { error: invError } = await (supabase.from('invoices') as any)
     .update({
       status: newStatus,
@@ -285,7 +286,6 @@ export async function recordPayment(formData: FormData) {
     const { data: freshLease } = await (supabase.from('leases') as any).select('credit_balance').eq('id', leaseId).single()
     const freshCredit = Number(freshLease?.credit_balance) || 0
     
-    // FIX: Cast to 'any'
     await (supabase.from('leases') as any)
       .update({
         credit_balance: freshCredit + creditToWallet
@@ -293,6 +293,42 @@ export async function recordPayment(formData: FormData) {
       .eq('id', leaseId)
     
     console.log(`✅ ADDED ${creditToWallet} TO WALLET`)
+  }
+
+  // ==========================================
+  // 6. SEND RECEIPT VIA WHATSAPP (NEW)
+  // ==========================================
+  try {
+    // @ts-ignore
+    const phone = formatToRwandaNumber(invoice.leases?.tenants?.phone)
+    // @ts-ignore
+    const name = invoice.leases?.tenants?.name
+    // @ts-ignore
+    const unit = invoice.leases?.units?.unit_number
+    
+    // Only send if we have a valid phone number
+    if (phone && phone.length >= 10) {
+      const receiptAmount = totalPayment.toLocaleString()
+      const date = new Date().toLocaleDateString('en-GB') // DD/MM/YYYY
+      
+      const receiptText = 
+`🧾 *PAYMENT RECEIPT*
+Hello ${name},
+Payment received for Unit ${unit}.
+
+💵 *Amount:* ${receiptAmount} RWF
+📅 *Date:* ${date}
+✅ *Status:* ${newStatus}
+${creditToWallet > 0 ? `💰 *Wallet Credit:* ${creditToWallet.toLocaleString()} RWF added.` : ''}
+
+Thank you!`
+
+      // Fire and forget (don't await strictly, so it doesn't block the UI return)
+      await sendToWaSender({ to: phone, text: receiptText })
+      console.log(`✅ Receipt Sent to ${name}`)
+    }
+  } catch (receiptError) {
+    console.error("⚠️ Failed to send receipt:", receiptError)
   }
 
   revalidatePath('/dashboard/invoices')
