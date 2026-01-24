@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import { createClient } from '@/utils/supabase/client'
 import { InvoiceManager } from '@/components/dashboard/invoice-manager'
 import { CollectionsTable } from '@/components/dashboard/collections-table'
+import { PrintInvoiceBtn } from '@/components/dashboard/invoices/PrintInvoiceBtn' // <--- IMPORTED HERE
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Badge } from "@/components/ui/badge"
@@ -19,7 +20,7 @@ export default function InvoicesPage() {
     fetchData()
   }, [])
 
-const fetchData = async () => {
+  const fetchData = async () => {
     // 1. Fetch the raw data
     const { data: rawInvoices, error } = await supabase
       .from('invoices')
@@ -33,7 +34,7 @@ const fetchData = async () => {
 
     // 2. SELF-HEALING: Identify invoices that are PENDING but Past Due
     const today = new Date()
-    today.setHours(0, 0, 0, 0) // Compare against midnight today
+    today.setHours(0, 0, 0, 0) 
 
     const overdueIds = rawInvoices
       .filter((inv: any) => {
@@ -44,13 +45,11 @@ const fetchData = async () => {
 
     // 3. If we found stale invoices, fix them in the Database immediately
     if (overdueIds.length > 0) {
-      // A. Update Database (Fire and forget)
       await supabase
         .from('invoices')
         .update({ status: 'OVERDUE' })
         .in('id', overdueIds)
 
-      // B. Update Local Data (So you see the change instantly)
       rawInvoices.forEach((inv: any) => {
         if (overdueIds.includes(inv.id)) {
           inv.status = 'OVERDUE'
@@ -64,7 +63,6 @@ const fetchData = async () => {
 
   // --- STATS ---
   const drafts = invoices.filter(i => i.status === 'DRAFT')
-  // Now "overdue" will actually catch the ones we fixed above
   const overdue = invoices.filter(i => i.status === 'OVERDUE')
   const pending = invoices.filter(i => ['PENDING', 'PARTIAL'].includes(i.status))
   const collectionsList = [...overdue, ...pending]
@@ -73,7 +71,6 @@ const fetchData = async () => {
     return sum + (Number(inv.amount) - Number(inv.amount_paid || 0))
   }, 0)
 
-  // --- LOADING SKELETON ---
   if (loading) {
     return (
       <div className="space-y-6">
@@ -83,7 +80,6 @@ const fetchData = async () => {
             <Skeleton className="h-4 w-96" />
           </div>
         </div>
-        {/* ... (Keep your existing skeleton cards) ... */}
         <div className="grid gap-4 md:grid-cols-3">
           {[1, 2, 3].map((i) => (
              <Skeleton key={i} className="h-32 w-full" />
@@ -97,7 +93,7 @@ const fetchData = async () => {
   return (
     <div className="space-y-6">
       
-      {/* HEADER: Button Removed as requested */}
+      {/* HEADER */}
       <div className="flex justify-between items-end">
         <div>
           <h2 className="text-3xl font-bold tracking-tight">Finance Cockpit</h2>
@@ -139,7 +135,7 @@ const fetchData = async () => {
       </div>
 
       {/* MAIN INTERFACE */}
-      <Tabs defaultValue="collections" className="space-y-4"> {/* Defaulted to collections for quick access */}
+      <Tabs defaultValue="collections" className="space-y-4"> 
         <TabsList>
           <TabsTrigger value="approvals">Approvals ({drafts.length})</TabsTrigger>
           <TabsTrigger value="collections">Collections ({collectionsList.length})</TabsTrigger>
@@ -167,14 +163,15 @@ const fetchData = async () => {
                <div className="rounded-md border">
                 <table className="w-full text-sm">
                   <thead className="bg-muted/50 border-b">
-                    <tr className="text-left">
-                      <th className="p-4">Date Paid</th>
-                      <th className="p-4">Tenant</th>
-                      <th className="p-4">Unit</th>
-                      <th className="p-4">Amount</th>
-                      <th className="p-4">Status</th>
-                    </tr>
-                  </thead>
+  <tr className="text-left">
+    <th className="p-4">Date Paid</th>
+    <th className="p-4">Tenant</th>
+    <th className="p-4">Unit</th>
+    <th className="p-4">Amount</th>
+    <th className="p-4">Status</th>
+    <th className="p-4 text-right">Actions</th>
+  </tr>
+</thead>
                   <tbody className="divide-y">
                       {invoices.filter(i => i.status === 'PAID').map(inv => (
                         <tr key={inv.id}>
@@ -183,6 +180,10 @@ const fetchData = async () => {
                            <td className="p-4">{inv.leases.units.unit_number}</td>
                            <td className="p-4 font-mono">{Number(inv.amount).toLocaleString()}</td>
                            <td className="p-4"><Badge variant="outline" className="text-green-600">PAID</Badge></td>
+                           <td className="p-4 text-right">
+                              {/* ADDED PRINT BUTTON HERE */}
+                              <PrintInvoiceBtn invoice={inv} />
+                           </td>
                         </tr>
                       ))}
                   </tbody>

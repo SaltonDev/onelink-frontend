@@ -5,9 +5,13 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { AlertCircle, Wallet, Calendar, ArrowRight, Search, Eye, CheckCircle2 } from "lucide-react"
+import { Wallet, Calendar, ArrowRight, Search, Eye, CheckCircle2 } from "lucide-react"
 import { RecordPaymentModal } from "@/components/modals/record-payment-modal"
 import { InvoiceDetailsDialog } from "./invoice-details-dialog"
+
+// 1. IMPORT BOTH BUTTONS
+import { PrintInvoiceButton } from '@/components/documents/buttons/print-invoice-button'
+import { DownloadInvoiceButton } from '@/components/documents/buttons/download-invoice-button'
 
 interface CollectionsTableProps {
   invoices: any[]
@@ -34,7 +38,7 @@ export function CollectionsTable({ invoices, onPaymentSuccess }: CollectionsTabl
     }) 
   }
 
-  // --- EMPTY STATE (FIXED) ---
+  // --- EMPTY STATE ---
   if (invoices.length === 0) {
     return (
       <Card className="border-dashed border-2 shadow-none bg-transparent">
@@ -100,12 +104,12 @@ export function CollectionsTable({ invoices, onPaymentSuccess }: CollectionsTabl
 
                   return (
                     <tr key={inv.id} className="group hover:bg-muted/50 transition-colors">
-                      {/* TENANT COL (UPDATED WITH WALLET BADGE) */}
+                      {/* TENANT COL */}
                       <td className="p-4">
                         <div className="flex items-center gap-2">
                           <div className="font-medium">{inv.leases?.tenants?.name}</div>
                           
-                          {/* ✅ NEW: Wallet Badge Logic */}
+                          {/* Wallet Badge Logic */}
                           {(inv.leases?.credit_balance > 0) && (
                             <Badge variant="outline" className="h-5 px-1.5 gap-1 bg-green-50 text-green-700 border-green-200 dark:bg-green-900/30 dark:text-green-400 dark:border-green-800">
                               <Wallet className="h-3 w-3" />
@@ -130,24 +134,32 @@ export function CollectionsTable({ invoices, onPaymentSuccess }: CollectionsTabl
 
                       {/* BALANCE COL */}
                       <td className="p-4">
-                         <div className="font-mono font-bold">
-                           {balance.toLocaleString()} <span className="text-xs font-sans font-normal text-muted-foreground">RWF</span>
-                         </div>
+                          <div className="font-mono font-bold">
+                            {balance.toLocaleString()} <span className="text-xs font-sans font-normal text-muted-foreground">RWF</span>
+                          </div>
                       </td>
 
                       {/* STATUS COL */}
                       <td className="p-4">
-                         <Badge 
-                           variant={isOverdue ? 'destructive' : 'secondary'}
-                           className={!isOverdue ? 'bg-orange-500/10 text-orange-600 hover:bg-orange-500/20 border-orange-500/20' : ''}
-                         >
-                           {inv.status}
-                         </Badge>
+                          <Badge 
+                            variant={isOverdue ? 'destructive' : 'secondary'}
+                            className={!isOverdue ? 'bg-orange-500/10 text-orange-600 hover:bg-orange-500/20 border-orange-500/20' : ''}
+                          >
+                            {inv.status}
+                          </Badge>
                       </td>
 
                       {/* ACTIONS COL */}
                       <td className="p-4 text-right">
-                        <div className="flex items-center justify-end gap-2">
+                        <div className="flex items-center justify-end gap-1">
+                          
+                          {/* 2. DOWNLOAD BUTTON (Green Hover) */}
+                          <DownloadInvoiceButton invoice={inv} variant="icon" />
+
+                          {/* 3. PRINT BUTTON (Blue Hover) */}
+                          <PrintInvoiceButton invoice={inv} variant="icon" />
+
+                          {/* VIEW BUTTON */}
                           <Button
                             size="icon"
                             variant="ghost"
@@ -157,9 +169,10 @@ export function CollectionsTable({ invoices, onPaymentSuccess }: CollectionsTabl
                             <Eye className="h-4 w-4" />
                           </Button>
 
+                          {/* PAY BUTTON */}
                           <Button 
                             size="sm" 
-                            className="bg-green-600 hover:bg-green-700 text-white shadow-sm h-8"
+                            className="ml-2 bg-green-600 hover:bg-green-700 text-white shadow-sm h-8"
                             onClick={() => setSelectedInvoice(inv)}
                           >
                             Pay <ArrowRight className="ml-1 h-3 w-3" />
