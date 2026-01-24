@@ -14,16 +14,19 @@ import { Smartphone, Banknote, Landmark, ArrowUpRight, ArrowDownLeft, FileDown, 
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
 
+// 1. IMPORT THE RECEIPT BUTTON
+import { DownloadReceiptButton } from '@/components/documents/buttons/download-receipt-button'
+
 export function TenantHistoryClient({ payments, tenantName }: { payments: any[], tenantName: string }) {
   const [selectedPayment, setSelectedPayment] = useState<any>(null)
 
-  // 1. GROUP BY MONTH LOGIC
+  // GROUP BY MONTH LOGIC
   const groupedPayments = useMemo(() => {
     const groups: Record<string, any[]> = {}
     
     payments.forEach(p => {
       const date = new Date(p.payment_date)
-      const key = date.toLocaleString('default', { month: 'long', year: 'numeric' }) // e.g., "January 2026"
+      const key = date.toLocaleString('default', { month: 'long', year: 'numeric' }) 
       if (!groups[key]) groups[key] = []
       groups[key].push(p)
     })
@@ -41,11 +44,10 @@ export function TenantHistoryClient({ payments, tenantName }: { payments: any[],
     }
   }
 
-  // --- PDF EXPORT FUNCTION ---
-  const exportPDF = () => {
+  // --- PDF EXPORT FUNCTION (Statement) ---
+  const exportStatement = () => {
     const doc = new jsPDF()
     
-    // Header
     doc.setFontSize(18)
     doc.text("Tenant Payment Statement", 14, 20)
     
@@ -53,7 +55,6 @@ export function TenantHistoryClient({ payments, tenantName }: { payments: any[],
     doc.text(`Tenant: ${tenantName}`, 14, 30)
     doc.text(`Date Generated: ${new Date().toLocaleDateString()}`, 14, 36)
 
-    // Table Data
     const tableData = payments.map(p => [
       new Date(p.payment_date).toLocaleDateString(),
       p.method,
@@ -67,10 +68,9 @@ export function TenantHistoryClient({ payments, tenantName }: { payments: any[],
       head: [['Date', 'Method', 'Property/Unit', 'Notes', 'Amount']],
       body: tableData,
       theme: 'grid',
-      headStyles: { fillColor: [22, 163, 74] }, // Green header
+      headStyles: { fillColor: [22, 163, 74] }, 
     })
 
-    // Footer "Made by OneLink"
     const pageCount = doc.getNumberOfPages()
     for(let i = 1; i <= pageCount; i++) {
         doc.setPage(i)
@@ -86,8 +86,8 @@ export function TenantHistoryClient({ payments, tenantName }: { payments: any[],
     <Card>
       <CardHeader className="flex flex-row items-center justify-between">
         <CardTitle>Detailed History</CardTitle>
-        <Button variant="outline" size="sm" onClick={exportPDF} className="gap-2">
-           <FileDown className="h-4 w-4" /> Export PDF
+        <Button variant="outline" size="sm" onClick={exportStatement} className="gap-2">
+           <FileDown className="h-4 w-4" /> Export Full Statement
         </Button>
       </CardHeader>
       
@@ -113,7 +113,7 @@ export function TenantHistoryClient({ payments, tenantName }: { payments: any[],
                       <TableHead>Location</TableHead>
                       <TableHead>Notes</TableHead>
                       <TableHead className="text-right">Amount</TableHead>
-                      <TableHead className="w-[50px]"></TableHead>
+                      <TableHead className="w-[80px] text-right">Actions</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -121,7 +121,7 @@ export function TenantHistoryClient({ payments, tenantName }: { payments: any[],
                       const isWallet = p.method === 'WALLET'
                       return (
                         <TableRow key={p.id}>
-                          {/* DATE (Removed Time) */}
+                          {/* DATE */}
                           <TableCell className="font-medium text-xs">
                              {new Date(p.payment_date).toLocaleDateString()}
                           </TableCell>
@@ -149,7 +149,7 @@ export function TenantHistoryClient({ payments, tenantName }: { payments: any[],
                           </TableCell>
 
                           {/* NOTES */}
-                          <TableCell className="text-xs text-muted-foreground max-w-[200px]">
+                          <TableCell className="text-xs text-muted-foreground max-w-[200px] truncate">
                             {p.notes || '-'}
                           </TableCell>
 
@@ -160,11 +160,16 @@ export function TenantHistoryClient({ payments, tenantName }: { payments: any[],
                             </Badge>
                           </TableCell>
 
-                          {/* ACTION */}
-                          <TableCell>
-                             <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setSelectedPayment(p)}>
-                               <Eye className="h-4 w-4 text-gray-400" />
-                             </Button>
+                          {/* ACTIONS COLUMN */}
+                          <TableCell className="text-right">
+                             <div className="flex items-center justify-end gap-1">
+                               {/* 2. RECEIPT BUTTON (Icon Only) */}
+                               <DownloadReceiptButton invoice={p} variant="icon" />
+
+                               <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setSelectedPayment(p)}>
+                                 <Eye className="h-4 w-4 text-gray-400" />
+                               </Button>
+                             </div>
                           </TableCell>
                         </TableRow>
                       )
@@ -190,36 +195,41 @@ export function TenantHistoryClient({ payments, tenantName }: { payments: any[],
             {selectedPayment && (
                <div className="space-y-6 pt-2">
                   <div className="flex flex-col items-center p-6 bg-slate-50 dark:bg-slate-900 rounded-xl border border-dashed">
-                     <span className="text-sm text-muted-foreground uppercase tracking-wider font-medium">Amount</span>
-                     <span className={`text-3xl font-bold font-mono mt-1 ${selectedPayment.method === 'WALLET' ? 'text-blue-600' : 'text-green-600'}`}>
-                        {Number(selectedPayment.amount).toLocaleString()} RWF
-                     </span>
-                     <Badge className="mt-3">Completed</Badge>
+                      <span className="text-sm text-muted-foreground uppercase tracking-wider font-medium">Amount</span>
+                      <span className={`text-3xl font-bold font-mono mt-1 ${selectedPayment.method === 'WALLET' ? 'text-blue-600' : 'text-green-600'}`}>
+                         {Number(selectedPayment.amount).toLocaleString()} RWF
+                      </span>
+                      <Badge className="mt-3">Completed</Badge>
                   </div>
                   
                   <div className="space-y-3">
-                     <div className="flex justify-between py-2 border-b">
-                        <span className="text-muted-foreground">Date</span>
-                        <span className="font-medium">{new Date(selectedPayment.payment_date).toLocaleDateString()}</span>
-                     </div>
-                     <div className="flex justify-between py-2 border-b">
-                        <span className="text-muted-foreground">Method</span>
-                        <span className="font-medium">{selectedPayment.method}</span>
-                     </div>
-                     <div className="flex justify-between py-2 border-b">
-                        <span className="text-muted-foreground">Property</span>
-                        <span className="font-medium">{selectedPayment.leases?.units?.properties?.name}</span>
-                     </div>
-                     <div className="flex justify-between py-2 border-b">
-                        <span className="text-muted-foreground">Unit</span>
-                        <span className="font-medium">{selectedPayment.leases?.units?.unit_number}</span>
-                     </div>
-                     <div className="pt-2">
-                        <span className="text-muted-foreground block mb-1 text-sm">Notes</span>
-                        <div className="p-3 bg-muted/50 rounded-md text-sm">
-                           {selectedPayment.notes || 'No notes provided.'}
-                        </div>
-                     </div>
+                      <div className="flex justify-between py-2 border-b">
+                         <span className="text-muted-foreground">Date</span>
+                         <span className="font-medium">{new Date(selectedPayment.payment_date).toLocaleDateString()}</span>
+                      </div>
+                      <div className="flex justify-between py-2 border-b">
+                         <span className="text-muted-foreground">Method</span>
+                         <span className="font-medium">{selectedPayment.method}</span>
+                      </div>
+                      <div className="flex justify-between py-2 border-b">
+                         <span className="text-muted-foreground">Property</span>
+                         <span className="font-medium">{selectedPayment.leases?.units?.properties?.name}</span>
+                      </div>
+                      <div className="flex justify-between py-2 border-b">
+                         <span className="text-muted-foreground">Unit</span>
+                         <span className="font-medium">{selectedPayment.leases?.units?.unit_number}</span>
+                      </div>
+                      <div className="pt-2">
+                         <span className="text-muted-foreground block mb-1 text-sm">Notes</span>
+                         <div className="p-3 bg-muted/50 rounded-md text-sm">
+                            {selectedPayment.notes || 'No notes provided.'}
+                         </div>
+                      </div>
+                  </div>
+
+                  {/* 3. RECEIPT BUTTON (Full Button inside Dialog) */}
+                  <div className="flex justify-end pt-2">
+                      <DownloadReceiptButton invoice={selectedPayment} variant="default" />
                   </div>
                </div>
             )}
