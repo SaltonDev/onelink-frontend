@@ -4,7 +4,6 @@ import { useState, useEffect } from 'react'
 import { createClient } from '@/utils/supabase/client'
 import { InvoiceManager } from '@/components/dashboard/invoice-manager'
 import { CollectionsTable } from '@/components/dashboard/collections-table'
-// 1. IMPORT YOUR RECEIPT BUTTON
 import { DownloadReceiptButton } from '@/components/documents/buttons/download-receipt-button'
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
@@ -12,8 +11,8 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Clock, Wallet, AlertCircle, FileDown } from "lucide-react"
-import jsPDF from 'jspdf'
-import autoTable from 'jspdf-autotable'
+// IMPORT THE NEW GENERATOR
+import { generateStatementPDF } from '@/utils/statement-generator'
 
 export default function InvoicesPage() {
   const [invoices, setInvoices] = useState<any[]>([])
@@ -25,7 +24,6 @@ export default function InvoicesPage() {
   }, [])
 
   const fetchData = async () => {
-    // 1. Fetch the raw data
     const { data: rawInvoices, error } = await supabase
       .from('invoices')
       .select(`*, leases(credit_balance, tenants(name, phone), units(unit_number, properties(name)))`)
@@ -36,58 +34,46 @@ export default function InvoicesPage() {
       return
     }
 
-    // 2. SELF-HEALING: Identify invoices that are PENDING but Past Due
+    // SELF-HEALING Logic
     const today = new Date()
     today.setHours(0, 0, 0, 0) 
-
-    const overdueIds = rawInvoices
-      .filter((inv: any) => {
+    const overdueIds = rawInvoices.filter((inv: any) => {
         const dueDate = new Date(inv.due_date)
         return inv.status === 'PENDING' && dueDate < today
-      })
-      .map((inv: any) => inv.id)
+    }).map((inv: any) => inv.id)
 
-    // 3. If we found stale invoices, fix them in the Database immediately
     if (overdueIds.length > 0) {
-      await supabase
-        .from('invoices')
-        .update({ status: 'OVERDUE' })
-        .in('id', overdueIds)
-
-      rawInvoices.forEach((inv: any) => {
-        if (overdueIds.includes(inv.id)) {
-          inv.status = 'OVERDUE'
-        }
-      })
+      await supabase.from('invoices').update({ status: 'OVERDUE' }).in('id', overdueIds)
+      rawInvoices.forEach((inv: any) => { if (overdueIds.includes(inv.id)) inv.status = 'OVERDUE' })
     }
     
     setInvoices(rawInvoices)
     setLoading(false)
   }
 
-  // --- 2. NEW: EXPORT FULL HISTORY STATEMENT ---
+  // --- EXPORT HISTORY FUNCTION (Fixed Date Format) ---
   const exportHistoryPDF = () => {
-    const doc = new jsPDF()
-    doc.setFontSize(18); doc.text("Payment Archive Report", 14, 20)
-    doc.setFontSize(10); doc.text(`Generated: ${new Date().toLocaleDateString()}`, 14, 28)
-
     const paidInvoices = invoices.filter(i => i.status === 'PAID')
     
     const tableData = paidInvoices.map(inv => [
-      new Date(inv.payment_date || inv.created_at).toLocaleDateString(),
+      // FIX 1: Force dd/mm/yyyy in PDF
+      new Date(inv.payment_date || inv.created_at).toLocaleDateString('en-GB'),
       inv.leases?.tenants?.name || 'Unknown',
       inv.leases?.units?.unit_number || '-',
       Number(inv.amount).toLocaleString() + ' RWF'
     ])
 
-    autoTable(doc, {
-      startY: 35,
-      head: [['Date Paid', 'Tenant', 'Unit', 'Amount']],
-      body: tableData,
-      theme: 'grid',
-      headStyles: { fillColor: [22, 163, 74] } // Green theme
+    generateStatementPDF({
+        title: "Finance Payment Report",
+        subtitle: "Full Transaction History",
+        entityInfo: [
+            `Total Collected: ${paidInvoices.reduce((sum, i) => sum + Number(i.amount), 0).toLocaleString()} RWF`,
+            `Records: ${paidInvoices.length}`
+        ],
+        columns: ['Date Paid', 'Tenant', 'Unit', 'Amount'],
+        data: tableData,
+        filename: 'OneLink_Finance_Report.pdf'
     })
-    doc.save('Finance_History_Statement.pdf')
   }
 
   // --- STATS ---
@@ -103,17 +89,8 @@ export default function InvoicesPage() {
   if (loading) {
     return (
       <div className="space-y-6">
-        <div className="flex justify-between items-center">
-          <div className="space-y-2">
-            <Skeleton className="h-8 w-64" />
-            <Skeleton className="h-4 w-96" />
-          </div>
-        </div>
-        <div className="grid gap-4 md:grid-cols-3">
-          {[1, 2, 3].map((i) => (
-             <Skeleton key={i} className="h-32 w-full" />
-          ))}
-        </div>
+        <div className="flex justify-between items-center"><div className="space-y-2"><Skeleton className="h-8 w-64" /><Skeleton className="h-4 w-96" /></div></div>
+        <div className="grid gap-4 md:grid-cols-3">{[1, 2, 3].map((i) => (<Skeleton key={i} className="h-32 w-full" />))}</div>
         <Skeleton className="h-96 w-full" />
       </div>
     )
@@ -121,7 +98,6 @@ export default function InvoicesPage() {
 
   return (
     <div className="space-y-6">
-      
       {/* HEADER */}
       <div className="flex justify-between items-end">
         <div>
@@ -137,9 +113,7 @@ export default function InvoicesPage() {
             <CardTitle className="text-sm font-medium">Drafts Pending</CardTitle>
             <Clock className="h-4 w-4 text-blue-500" />
           </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{drafts.length}</div>
-          </CardContent>
+          <CardContent><div className="text-2xl font-bold">{drafts.length}</div></CardContent>
         </Card>
 
         <Card className="border-l-4 border-l-red-500 bg-red-50/10">
@@ -147,9 +121,7 @@ export default function InvoicesPage() {
             <CardTitle className="text-sm font-medium text-red-600">Total Arrears</CardTitle>
             <AlertCircle className="h-4 w-4 text-red-600" />
           </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-red-600">{totalReceivable.toLocaleString()} RWF</div>
-          </CardContent>
+          <CardContent><div className="text-2xl font-bold text-red-600">{totalReceivable.toLocaleString()} RWF</div></CardContent>
         </Card>
 
         <Card className="border-l-4 border-l-green-500">
@@ -157,9 +129,7 @@ export default function InvoicesPage() {
             <CardTitle className="text-sm font-medium">Collections Queue</CardTitle>
             <Wallet className="h-4 w-4 text-green-600" />
           </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{pending.length}</div>
-          </CardContent>
+          <CardContent><div className="text-2xl font-bold">{pending.length}</div></CardContent>
         </Card>
       </div>
 
@@ -172,24 +142,17 @@ export default function InvoicesPage() {
         </TabsList>
 
         <TabsContent value="approvals">
-          <InvoiceManager 
-            initialInvoices={drafts} 
-            onRefresh={fetchData} 
-          />
+          <InvoiceManager initialInvoices={drafts} onRefresh={fetchData} />
         </TabsContent>
 
         <TabsContent value="collections">
-           <CollectionsTable 
-             invoices={collectionsList} 
-             onPaymentSuccess={fetchData} 
-           />
+           <CollectionsTable invoices={collectionsList} onPaymentSuccess={fetchData} />
         </TabsContent>
 
         <TabsContent value="history">
           <Card>
             <CardHeader className="flex flex-row items-center justify-between">
                 <CardTitle>Payment Archive</CardTitle>
-                {/* 3. ADDED EXPORT BUTTON HERE */}
                 <Button variant="outline" size="sm" onClick={exportHistoryPDF} className="gap-2">
                     <FileDown className="h-4 w-4" /> Export Statement
                 </Button>
@@ -210,29 +173,22 @@ export default function InvoicesPage() {
                   <tbody className="divide-y">
                       {invoices
                         .filter(i => i.status === 'PAID')
-                        // 4. ADDED SORT: Newest Paid First
-                        .sort((a, b) => {
-                           const dateA = new Date(a.payment_date || a.created_at).getTime()
-                           const dateB = new Date(b.payment_date || b.created_at).getTime()
-                           return dateB - dateA
-                        })
+                        .sort((a, b) => new Date(b.payment_date || b.created_at).getTime() - new Date(a.payment_date || a.created_at).getTime())
                         .map(inv => (
                           <tr key={inv.id} className="hover:bg-muted/50">
+                             {/* FIX 2: Force dd/mm/yyyy in UI Table */}
                              <td className="p-4">{new Date(inv.payment_date || inv.created_at).toLocaleDateString('en-GB')}</td>
                              <td className="p-4">{inv.leases?.tenants?.name}</td>
                              <td className="p-4">{inv.leases?.units?.unit_number}</td>
                              <td className="p-4 font-mono">{Number(inv.amount).toLocaleString()}</td>
                              <td className="p-4"><Badge variant="outline" className="text-green-600 bg-green-50">PAID</Badge></td>
                              <td className="p-4 text-right">
-                               {/* 5. ADDED INDIVIDUAL RECEIPT BUTTON HERE */}
                                <DownloadReceiptButton invoice={inv} variant="icon" />
                              </td>
                           </tr>
                         ))}
                       {invoices.filter(i => i.status === 'PAID').length === 0 && (
-                        <tr>
-                            <td colSpan={6} className="p-8 text-center text-muted-foreground">No payment history yet.</td>
-                        </tr>
+                        <tr><td colSpan={6} className="p-8 text-center text-muted-foreground">No payment history yet.</td></tr>
                       )}
                   </tbody>
                 </table>

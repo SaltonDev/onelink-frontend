@@ -1,4 +1,7 @@
 import { Sidebar } from "@/components/layout/sidebar"
+// 1. IMPORT THE NEW COMPONENTS
+import { AuthMonitor } from '@/components/global/auth-monitor'
+import { NetworkStatus } from '@/components/global/network-status'
 
 export default function DashboardLayout({
   children,
@@ -7,6 +10,11 @@ export default function DashboardLayout({
 }) {
   return (
     <div className="h-full relative bg-background min-h-screen">
+      
+      {/* 2. ADD THEM HERE - They protect everything below */}
+      <AuthMonitor />
+      <NetworkStatus />
+
       <div className="hidden h-full md:flex md:w-72 md:flex-col md:fixed md:inset-y-0 z-[80]">
         <Sidebar />
       </div>

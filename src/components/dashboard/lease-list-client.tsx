@@ -2,18 +2,18 @@
 
 import { useState, useMemo } from 'react'
 import Link from 'next/link'
-import { terminateLease, terminateBulkLeases, updateLease } from '@/app/dashboard/tenants/actions' // <--- Added updateLease
+import { terminateLease, terminateBulkLeases, updateLease } from '@/app/dashboard/tenants/actions'
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label" // <--- Added Label
+import { Label } from "@/components/ui/label"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Search, MoreHorizontal, FileDown, Calendar, Home, AlertTriangle, Trash2, FileText, Filter, Loader2, Pencil } from "lucide-react"
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table"
 import {
-  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuTrigger,
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
@@ -22,15 +22,16 @@ import {
   Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription
 } from "@/components/ui/sheet"
 import {
-  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter // <--- Added Dialog components
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter
 } from "@/components/ui/dialog"
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
-import { MoneyInput } from "@/components/ui/money-input" // <--- Added MoneyInput
+import { MoneyInput } from "@/components/ui/money-input"
 import { toast } from "sonner"
-import { jsPDF } from 'jspdf'
-import autoTable from 'jspdf-autotable'
+
+// IMPORT THE NEW GENERATOR
+import { generateLeaseListPDF } from '@/utils/lease-list-generator'
 
 interface LeaseListProps {
   leases: any[]
@@ -45,13 +46,13 @@ export function LeaseListClient({ leases, properties, type = 'ACTIVE' }: LeaseLi
   
   // Actions State
   const [leaseToTerminate, setLeaseToTerminate] = useState<any>(null)
-  const [leaseToEdit, setLeaseToEdit] = useState<any>(null) // <--- New Edit State
+  const [leaseToEdit, setLeaseToEdit] = useState<any>(null)
   const [showBulkTerminate, setShowBulkTerminate] = useState(false)
   const [viewLease, setViewLease] = useState<any>(null)
   
   // Loading States
   const [isProcessing, setIsProcessing] = useState(false)
-  const [isSaving, setIsSaving] = useState(false) // <--- For Edit Save
+  const [isSaving, setIsSaving] = useState(false)
 
   // --- FILTERING ---
   const filteredData = useMemo(() => {
@@ -127,29 +128,15 @@ export function LeaseListClient({ leases, properties, type = 'ACTIVE' }: LeaseLi
     try { await promise } catch(e) {} finally { setIsProcessing(false) }
   }
 
-  // --- EXPORT PDF ---
-  const exportPDF = () => {
-    const doc = new jsPDF()
-    doc.setFontSize(14)
-    doc.text(`${type === 'ACTIVE' ? 'Active' : 'Expiring'} Leases`, 14, 20)
-    doc.setFontSize(10)
-    doc.text(`Filter: ${propertyFilter}`, 14, 26)
-    
-    const tableData = filteredData.map(l => [
-      l.tenants?.name || 'Unknown', 
-      `${l.units?.unit_number} (${l.units?.properties?.name})`,
-      `${new Date(l.start_date).toLocaleDateString()} - ${l.end_date ? new Date(l.end_date).toLocaleDateString() : 'Indefinite'}`,
-      Number(l.rent_amount).toLocaleString()
-    ])
-
-    autoTable(doc, {
-      startY: 35,
-      head: [['Tenant', 'Unit', 'Duration', 'Rent (RWF)']],
-      body: tableData,
-      theme: 'grid',
-      headStyles: { fillColor: type === 'EXPIRING' ? [194, 65, 12] : [22, 163, 74] }
+  // --- PDF EXPORT ---
+  const handleExportPDF = () => {
+    generateLeaseListPDF({
+        leases: filteredData,
+        filterContext: {
+            property: propertyFilter,
+            type: type
+        }
     })
-    doc.save(`${type.toLowerCase()}_leases.pdf`)
   }
 
   const toggleSelectAll = () => {
@@ -197,7 +184,7 @@ export function LeaseListClient({ leases, properties, type = 'ACTIVE' }: LeaseLi
                 <Trash2 className="h-4 w-4 mr-2" /> Terminate ({selectedIds.size})
               </Button>
            )}
-           <Button variant="outline" size="sm" onClick={exportPDF} className="h-9">
+           <Button variant="outline" size="sm" onClick={handleExportPDF} className="h-9">
              <FileDown className="h-4 w-4 mr-2" /> PDF
            </Button>
         </div>
@@ -251,10 +238,11 @@ export function LeaseListClient({ leases, properties, type = 'ACTIVE' }: LeaseLi
                        <div className="flex flex-col text-sm">
                           <div className="flex items-center gap-1.5">
                              <Calendar className="h-3 w-3 text-muted-foreground" />
-                             <span>{new Date(lease.start_date).toLocaleDateString()}</span>
+                             {/* FIX: Force Date Format dd/mm/yyyy */}
+                             <span>{new Date(lease.start_date).toLocaleDateString('en-GB')}</span>
                              <span className="text-muted-foreground">→</span>
                              <span className={`${isExpiring ? 'text-orange-600 font-medium' : ''}`}>
-                               {lease.end_date ? new Date(lease.end_date).toLocaleDateString() : 'Indefinite'}
+                               {lease.end_date ? new Date(lease.end_date).toLocaleDateString('en-GB') : 'Indefinite'}
                              </span>
                           </div>
                           {isExpiring && type === 'EXPIRING' && (
@@ -272,7 +260,6 @@ export function LeaseListClient({ leases, properties, type = 'ACTIVE' }: LeaseLi
                              <DropdownMenuItem className="cursor-pointer" onClick={() => setViewLease(lease)}>
                                 <FileText className="mr-2 h-4 w-4" /> View Contract
                              </DropdownMenuItem>
-                             {/* ✅ ADDED: Edit Contract */}
                              <DropdownMenuItem className="cursor-pointer" onClick={() => setLeaseToEdit(lease)}>
                                 <Pencil className="mr-2 h-4 w-4" /> Edit Contract
                              </DropdownMenuItem>
@@ -290,7 +277,7 @@ export function LeaseListClient({ leases, properties, type = 'ACTIVE' }: LeaseLi
         </Table>
       </div>
 
-      {/* ✅ DRAWER: VIEW CONTRACT */}
+      {/* DRAWER: VIEW CONTRACT */}
       <Sheet open={!!viewLease} onOpenChange={(o) => !o && setViewLease(null)}>
          <SheetContent>
             <SheetHeader>
@@ -300,23 +287,24 @@ export function LeaseListClient({ leases, properties, type = 'ACTIVE' }: LeaseLi
             {viewLease && (
                <div className="mt-6 space-y-6">
                   <div className="bg-slate-50 dark:bg-slate-900 p-4 rounded-lg border">
-                     <div className="flex items-center gap-3 mb-4">
-                        <div className="h-10 w-10 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 font-bold">{viewLease.tenants?.name.slice(0,2).toUpperCase()}</div>
-                        <div>
-                           <div className="font-bold">{viewLease.tenants?.name}</div>
-                           <div className="text-xs text-muted-foreground">{viewLease.tenants?.phone}</div>
-                        </div>
-                     </div>
-                     <div className="grid grid-cols-2 gap-4 text-sm">
-                        <div><div className="text-xs text-muted-foreground mb-1">Property</div><div className="font-medium">{viewLease.units?.properties?.name}</div></div>
-                        <div><div className="text-xs text-muted-foreground mb-1">Unit</div><div className="font-medium">{viewLease.units?.unit_number}</div></div>
-                     </div>
+                      <div className="flex items-center gap-3 mb-4">
+                         <div className="h-10 w-10 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 font-bold">{viewLease.tenants?.name.slice(0,2).toUpperCase()}</div>
+                         <div>
+                            <div className="font-bold">{viewLease.tenants?.name}</div>
+                            <div className="text-xs text-muted-foreground">{viewLease.tenants?.phone}</div>
+                         </div>
+                      </div>
+                      <div className="grid grid-cols-2 gap-4 text-sm">
+                         <div><div className="text-xs text-muted-foreground mb-1">Property</div><div className="font-medium">{viewLease.units?.properties?.name}</div></div>
+                         <div><div className="text-xs text-muted-foreground mb-1">Unit</div><div className="font-medium">{viewLease.units?.unit_number}</div></div>
+                      </div>
                   </div>
                   <div className="space-y-4">
-                     <div className="flex justify-between border-b pb-2"><span className="text-sm text-muted-foreground">Start Date</span><span className="font-medium">{new Date(viewLease.start_date).toLocaleDateString()}</span></div>
-                     <div className="flex justify-between border-b pb-2"><span className="text-sm text-muted-foreground">End Date</span><span className="font-medium">{viewLease.end_date ? new Date(viewLease.end_date).toLocaleDateString() : 'Indefinite'}</span></div>
-                     <div className="flex justify-between border-b pb-2"><span className="text-sm text-muted-foreground">Monthly Rent</span><span className="font-mono font-bold text-green-600">{Number(viewLease.rent_amount).toLocaleString()} RWF</span></div>
-                     <div className="flex justify-between border-b pb-2"><span className="text-sm text-muted-foreground">Status</span><Badge>{viewLease.status}</Badge></div>
+                      {/* FIX: Force Date Format dd/mm/yyyy */}
+                      <div className="flex justify-between border-b pb-2"><span className="text-sm text-muted-foreground">Start Date</span><span className="font-medium">{new Date(viewLease.start_date).toLocaleDateString('en-GB')}</span></div>
+                      <div className="flex justify-between border-b pb-2"><span className="text-sm text-muted-foreground">End Date</span><span className="font-medium">{viewLease.end_date ? new Date(viewLease.end_date).toLocaleDateString('en-GB') : 'Indefinite'}</span></div>
+                      <div className="flex justify-between border-b pb-2"><span className="text-sm text-muted-foreground">Monthly Rent</span><span className="font-mono font-bold text-green-600">{Number(viewLease.rent_amount).toLocaleString()} RWF</span></div>
+                      <div className="flex justify-between border-b pb-2"><span className="text-sm text-muted-foreground">Status</span><Badge>{viewLease.status}</Badge></div>
                   </div>
                   <div className="pt-4"><Button variant="outline" className="w-full" asChild><Link href={`/dashboard/tenants/${viewLease.tenant_id}`}>View Payment History</Link></Button></div>
                </div>
@@ -324,7 +312,7 @@ export function LeaseListClient({ leases, properties, type = 'ACTIVE' }: LeaseLi
          </SheetContent>
       </Sheet>
 
-      {/* ✅ EDIT MODAL */}
+      {/* EDIT MODAL */}
       <Dialog open={!!leaseToEdit} onOpenChange={(o) => !o && setLeaseToEdit(null)}>
         <DialogContent>
           <DialogHeader>
@@ -334,7 +322,6 @@ export function LeaseListClient({ leases, properties, type = 'ACTIVE' }: LeaseLi
             <form action={handleUpdate} className="space-y-4 mt-2">
               <input type="hidden" name="id" value={leaseToEdit.id} />
               
-              {/* Read-Only Info */}
               <div className="grid grid-cols-2 gap-4 p-3 bg-muted/50 rounded-md text-sm">
                  <div>
                     <span className="text-xs text-muted-foreground">Tenant</span>
@@ -346,13 +333,11 @@ export function LeaseListClient({ leases, properties, type = 'ACTIVE' }: LeaseLi
                  </div>
               </div>
 
-              {/* Rent */}
               <div className="space-y-2">
                 <Label>Monthly Rent (RWF)</Label>
                 <MoneyInput name="rent_amount" defaultValue={leaseToEdit.rent_amount} required />
               </div>
 
-              {/* Dates */}
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label>Start Date</Label>

@@ -12,8 +12,9 @@ import {
   TableRow 
 } from "@/components/ui/table"
 import { Download, Calendar, AlertCircle, CheckCircle2, Clock } from "lucide-react"
-import jsPDF from 'jspdf'
-import autoTable from 'jspdf-autotable'
+
+// IMPORT THE NEW GENERATOR
+import { generateTenantStatementPDF } from '@/utils/tenant-statement-generator'
 
 interface Invoice {
   id: string
@@ -72,40 +73,28 @@ export function TenantStatement({ invoices, tenantName }: { invoices: Invoice[],
   
   const balance = totalBilled - totalPaid
 
-  // --- 3. PDF EXPORT ---
-  const generatePDF = () => {
-    const doc = new jsPDF()
-    doc.setFontSize(18)
-    doc.text("Tenant Statement", 14, 20)
-    doc.setFontSize(12)
-    doc.text(`Tenant: ${tenantName}`, 14, 30)
-    doc.text(`Date: ${new Date().toLocaleDateString()}`, 14, 36)
+  // --- 3. PDF EXPORT (UPDATED) ---
+  const handleGeneratePDF = () => {
+    // Transform processedData to match the simpler interface expected by the generator
+    const generatorData = processedData.map(item => ({
+        due_date: item.due_date,
+        unit_number: item.leases.units.unit_number,
+        payment_date: item.payment_date,
+        amount: item.amount,
+        amount_paid: item.amount_paid,
+        statusLabel: item.statusLabel,
+        lateText: item.lateText
+    }))
 
-    const tableRows = processedData.map(row => [
-      new Date(row.due_date).toLocaleDateString('en-US', { month: 'short', year: 'numeric' }),
-      row.leases.units.unit_number,
-      new Date(row.payment_date || new Date()).toLocaleDateString(),
-      `${Number(row.amount).toLocaleString()}`,     // Invoice Total
-      `${Number(row.amount_paid).toLocaleString()}`, // Amount Paid
-      row.statusLabel,
-      row.lateText
-    ])
-
-    autoTable(doc, {
-      startY: 45,
-      head: [['Month', 'Unit', 'Date Paid', 'Invoice Total', 'Paid Amount', 'Status', 'Notes']],
-      body: tableRows,
-      theme: 'grid',
-      headStyles: { fillColor: [22, 163, 74] },
+    generateTenantStatementPDF({
+        tenantName,
+        data: generatorData,
+        summary: {
+            totalBilled,
+            totalPaid,
+            balance
+        }
     })
-
-    // Footer
-    const finalY = (doc as any).lastAutoTable.finalY + 10
-    doc.text(`Total Billed: ${totalBilled.toLocaleString()} RWF`, 14, finalY)
-    doc.text(`Total Paid:   ${totalPaid.toLocaleString()} RWF`, 14, finalY + 6)
-    doc.text(`Balance Due:  ${balance.toLocaleString()} RWF`, 14, finalY + 12)
-
-    doc.save(`${tenantName}_Statement.pdf`)
   }
 
   return (
@@ -118,7 +107,7 @@ export function TenantStatement({ invoices, tenantName }: { invoices: Invoice[],
           </CardTitle>
           <p className="text-sm text-gray-500 mt-1">Full breakdown of payments.</p>
         </div>
-        <Button onClick={generatePDF} variant="outline" className="border-green-600 text-green-700 hover:bg-green-50">
+        <Button onClick={handleGeneratePDF} variant="outline" className="border-green-600 text-green-700 hover:bg-green-50">
           <Download className="mr-2 h-4 w-4" /> Export PDF
         </Button>
       </CardHeader>
@@ -130,8 +119,8 @@ export function TenantStatement({ invoices, tenantName }: { invoices: Invoice[],
               <TableRow>
                 <TableHead>Billing Month</TableHead>
                 <TableHead>Date Paid</TableHead>
-                <TableHead>Invoice Total</TableHead> {/* Renamed from "Expected" */}
-                <TableHead>Paid Amount</TableHead>   {/* Renamed from "Paid" */}
+                <TableHead>Invoice Total</TableHead>
+                <TableHead>Paid Amount</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead>Details</TableHead>
               </TableRow>
@@ -141,10 +130,10 @@ export function TenantStatement({ invoices, tenantName }: { invoices: Invoice[],
                 <TableRow key={inv.id}>
                   <TableCell className="font-medium">
                     {new Date(inv.due_date).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
-                    <div className="text-[10px] text-gray-400">Due: {new Date(inv.due_date).toLocaleDateString()}</div>
+                    <div className="text-[10px] text-gray-400">Due: {new Date(inv.due_date).toLocaleDateString('en-GB')}</div>
                   </TableCell>
                   <TableCell>
-                     <span className="font-mono text-xs">{inv.payment_date ? new Date(inv.payment_date).toLocaleDateString() : '-'}</span>
+                      <span className="font-mono text-xs">{inv.payment_date ? new Date(inv.payment_date).toLocaleDateString('en-GB') : '-'}</span>
                   </TableCell>
                   <TableCell className="text-gray-500">
                     {Number(inv.amount).toLocaleString()}
@@ -171,14 +160,14 @@ export function TenantStatement({ invoices, tenantName }: { invoices: Invoice[],
           
           {/* FOOTER TOTALS */}
           <div className="bg-slate-50 p-4 border-t flex justify-end gap-8 text-sm">
-             <div>
-               <p className="text-gray-500 text-xs uppercase">Total Billed</p>
-               <p className="font-bold text-gray-900">{totalBilled.toLocaleString()} RWF</p>
-             </div>
-             <div>
-               <p className="text-gray-500 text-xs uppercase">Total Paid</p>
-               <p className="font-bold text-green-600">{totalPaid.toLocaleString()} RWF</p>
-             </div>
+              <div>
+                <p className="text-gray-500 text-xs uppercase">Total Billed</p>
+                <p className="font-bold text-gray-900">{totalBilled.toLocaleString()} RWF</p>
+              </div>
+              <div>
+                <p className="text-gray-500 text-xs uppercase">Total Paid</p>
+                <p className="font-bold text-green-600">{totalPaid.toLocaleString()} RWF</p>
+              </div>
           </div>
         </div>
       </CardContent>

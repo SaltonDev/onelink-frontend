@@ -11,29 +11,24 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle
 } from "@/components/ui/dialog"
 import { Smartphone, Banknote, Landmark, ArrowUpRight, FileDown, Eye, Building2 } from "lucide-react"
-import jsPDF from 'jspdf'
-import autoTable from 'jspdf-autotable'
 import { DownloadReceiptButton } from '@/components/documents/buttons/download-receipt-button'
+// IMPORT THE NEW GENERATOR
+import { generateStatementPDF } from '@/utils/statement-generator'
 
 export function TenantHistoryClient({ payments, tenantName }: { payments: any[], tenantName: string }) {
   const [selectedPayment, setSelectedPayment] = useState<any>(null)
 
-  // --- FIX: DATA TRANSLATOR ---
-  // Maps "Payment" data to the "Invoice" format the PDF generator expects
+  // DATA TRANSLATOR (For Receipts)
   const prepareReceiptData = (payment: any) => {
     return {
       id: payment.id || 'REC',
       payment_date: payment.payment_date || new Date().toISOString(),
-      due_date: payment.payment_date || new Date().toISOString(), // Fixes "Invalid Date"
-      amount_paid: Number(payment.amount) || 0, // Fixes "NaN"
+      due_date: payment.payment_date || new Date().toISOString(),
+      amount_paid: Number(payment.amount) || 0,
       amount: Number(payment.amount) || 0, 
       leases: {
-        tenants: {
-          name: payment.leases?.tenants?.name || tenantName || "Valued Tenant" // Fixes "Unknown Tenant"
-        },
-        units: {
-          unit_number: payment.leases?.units?.unit_number || 'N/A'
-        }
+        tenants: { name: payment.leases?.tenants?.name || tenantName || "Valued Tenant" },
+        units: { unit_number: payment.leases?.units?.unit_number || 'N/A' }
       }
     }
   }
@@ -60,29 +55,28 @@ export function TenantHistoryClient({ payments, tenantName }: { payments: any[],
     }
   }
 
-  // EXPORT FULL STATEMENT
+  // EXPORT FULL STATEMENT (Using New Professional Generator)
   const exportStatement = () => {
-    const doc = new jsPDF()
-    doc.setFontSize(18); doc.text("Tenant Payment Statement", 14, 20)
-    doc.setFontSize(12); doc.text(`Tenant: ${tenantName}`, 14, 30)
-    doc.text(`Date Generated: ${new Date().toLocaleDateString()}`, 14, 36)
-
     const tableData = payments.map(p => [
-      new Date(p.payment_date).toLocaleDateString(),
+      // --- FIX IS HERE: Force 'en-GB' for dd/mm/yyyy ---
+      new Date(p.payment_date).toLocaleDateString('en-GB'),
       p.method,
-      `${p.leases?.units?.properties?.name || ''} - ${p.leases?.units?.unit_number || ''}`,
+      `Unit ${p.leases?.units?.unit_number || '-'}`,
       p.notes || '-',
       Number(p.amount).toLocaleString() + ' RWF'
     ])
 
-    autoTable(doc, {
-      startY: 45,
-      head: [['Date', 'Method', 'Property/Unit', 'Notes', 'Amount']],
-      body: tableData,
-      theme: 'grid',
-      headStyles: { fillColor: [22, 163, 74] }, 
+    generateStatementPDF({
+        title: "Tenant Payment History",
+        subtitle: "Statement of Account",
+        entityInfo: [
+            `Tenant: ${tenantName}`,
+            `Total Records: ${payments.length}`
+        ],
+        columns: ['Date', 'Method', 'Unit', 'Notes', 'Amount'],
+        data: tableData,
+        filename: `${tenantName.replace(/\s+/g, '_')}_Statement.pdf`
     })
-    doc.save(`${tenantName}_Statement.pdf`)
   }
 
   return (
@@ -118,12 +112,14 @@ export function TenantHistoryClient({ payments, tenantName }: { payments: any[],
                   <TableBody>
                     {monthPayments.map((p) => {
                       const isWallet = p.method === 'WALLET'
-                      // PREPARE SAFE DATA
                       const safeReceiptData = prepareReceiptData(p)
 
                       return (
                         <TableRow key={p.id}>
-                          <TableCell className="font-medium text-xs">{new Date(p.payment_date).toLocaleDateString()}</TableCell>
+                          <TableCell className="font-medium text-xs">
+                             {/* Optional: Fix visual table date as well */}
+                             {new Date(p.payment_date).toLocaleDateString('en-GB')}
+                          </TableCell>
                           <TableCell>
                              <div className="flex items-center gap-3">
                                 {getIcon(p.method)}
@@ -147,7 +143,6 @@ export function TenantHistoryClient({ payments, tenantName }: { payments: any[],
                           </TableCell>
                           <TableCell className="text-right">
                              <div className="flex items-center justify-end gap-1">
-                               {/* USE SAFE DATA HERE */}
                                <DownloadReceiptButton invoice={safeReceiptData} variant="icon" />
                                <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setSelectedPayment(p)}>
                                  <Eye className="h-4 w-4 text-gray-400" />
@@ -175,7 +170,6 @@ export function TenantHistoryClient({ payments, tenantName }: { payments: any[],
                       <span className="text-3xl font-bold font-mono mt-1 text-green-600">{Number(selectedPayment.amount).toLocaleString()} RWF</span>
                       <Badge className="mt-3">Completed</Badge>
                   </div>
-                  {/* USE SAFE DATA HERE TOO */}
                   <div className="flex justify-end pt-2">
                       <DownloadReceiptButton invoice={prepareReceiptData(selectedPayment)} variant="default" />
                   </div>

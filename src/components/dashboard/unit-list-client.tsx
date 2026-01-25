@@ -6,7 +6,7 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Checkbox } from "@/components/ui/checkbox"
-import { Search, Filter, Trash2, SlidersHorizontal } from "lucide-react"
+import { Search, Trash2, FileDown } from "lucide-react" // <--- Added FileDown
 import {
   Table,
   TableBody,
@@ -15,13 +15,9 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
+
+// IMPORT THE GENERATOR
+import { generateUnitListPDF } from '@/utils/unit-list-generator'
 
 interface Unit {
   id: string
@@ -32,7 +28,8 @@ interface Unit {
   property_id: string
 }
 
-export function UnitListClient({ units }: { units: Unit[] }) {
+// Update props to accept propertyName
+export function UnitListClient({ units, propertyName }: { units: Unit[], propertyName: string }) {
   const [searchQuery, setSearchQuery] = useState('')
   const [statusFilter, setStatusFilter] = useState<string>('ALL')
   const [selectedUnits, setSelectedUnits] = useState<Set<string>>(new Set())
@@ -49,6 +46,15 @@ export function UnitListClient({ units }: { units: Unit[] }) {
       return matchesSearch && matchesStatus
     })
   }, [units, searchQuery, statusFilter])
+
+  // --- EXPORT FUNCTION ---
+  const handleExport = () => {
+    generateUnitListPDF({
+      propertyName: propertyName || 'Property',
+      units: filteredUnits,
+      filterStatus: statusFilter
+    })
+  }
 
   // --- SELECTION LOGIC ---
   const isAllSelected = filteredUnits.length > 0 && selectedUnits.size === filteredUnits.length
@@ -89,22 +95,29 @@ export function UnitListClient({ units }: { units: Unit[] }) {
           />
         </div>
 
-        {/* Status Tabs */}
-        <div className="flex items-center gap-2 p-1 bg-muted/50 rounded-lg overflow-hidden">
-          {['ALL', 'VACANT', 'OCCUPIED', 'MAINTENANCE'].map((status) => (
-            <button
-              key={status}
-              onClick={() => setStatusFilter(status)}
-              className={`
-                px-3 py-1.5 text-xs font-medium rounded-md transition-all
-                ${statusFilter === status 
-                  ? 'bg-white text-blue-600 shadow-sm dark:bg-slate-800 dark:text-blue-400' 
-                  : 'text-muted-foreground hover:text-foreground hover:bg-muted'}
-              `}
-            >
-              {status.charAt(0) + status.slice(1).toLowerCase()}
-            </button>
-          ))}
+        <div className="flex items-center gap-2 w-full sm:w-auto">
+            {/* Status Tabs */}
+            <div className="flex items-center gap-2 p-1 bg-muted/50 rounded-lg overflow-hidden flex-1 sm:flex-none overflow-x-auto">
+            {['ALL', 'VACANT', 'OCCUPIED', 'MAINTENANCE'].map((status) => (
+                <button
+                key={status}
+                onClick={() => setStatusFilter(status)}
+                className={`
+                    px-3 py-1.5 text-xs font-medium rounded-md transition-all whitespace-nowrap
+                    ${statusFilter === status 
+                    ? 'bg-white text-blue-600 shadow-sm dark:bg-slate-800 dark:text-blue-400' 
+                    : 'text-muted-foreground hover:text-foreground hover:bg-muted'}
+                `}
+                >
+                {status.charAt(0) + status.slice(1).toLowerCase()}
+                </button>
+            ))}
+            </div>
+
+            {/* EXPORT BUTTON */}
+            <Button variant="outline" size="icon" onClick={handleExport} className="shrink-0">
+                <FileDown className="h-4 w-4" />
+            </Button>
         </div>
       </div>
 

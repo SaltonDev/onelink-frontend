@@ -8,12 +8,12 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Label } from "@/components/ui/label"
-import { Search, Trash2, MoreHorizontal, FileDown, Phone, Mail, CreditCard, Filter, Loader2, Pencil } from "lucide-react" // <--- Added CreditCard
+import { Search, Trash2, MoreHorizontal, FileDown, Phone, Mail, CreditCard, Filter, Loader2, Pencil } from "lucide-react"
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table"
 import {
-  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuTrigger,
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter 
@@ -25,8 +25,9 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import { toast } from "sonner"
-import { jsPDF } from 'jspdf' 
-import autoTable from 'jspdf-autotable'
+
+// --- IMPORT THE NEW GENERATOR ---
+import { generateTenantListPDF } from '@/utils/tenant-list-generator'
 
 interface Tenant {
   id: string
@@ -127,23 +128,15 @@ export function TenantListClient({ tenants, properties }: { tenants: Tenant[], p
     try { await promise } catch (e) {} finally { setIsSaving(false) }
   }
 
-  // --- PDF EXPORT ---
-  const exportPDF = () => {
-    const doc = new jsPDF()
-    doc.setFontSize(14)
-    doc.text("Tenant Directory", 14, 20)
-    doc.setFontSize(10)
-    doc.text(`Filter: ${filter} | Property: ${propertyFilter}`, 14, 26)
-
-    const tableData = filteredData.map(t => {
-        // @ts-ignore
-        const activeLease = t.leases?.find((l: any) => l.status === 'ACTIVE')
-        const location = activeLease ? `${activeLease.units?.properties?.name} (${activeLease.units?.unit_number})` : '-'
-        return [t.name, t.phone, t.status, location]
+  // --- PDF EXPORT (UPDATED) ---
+  const handleExport = () => {
+    generateTenantListPDF({
+        tenants: filteredData,
+        filterContext: {
+            status: filter,
+            property: propertyFilter
+        }
     })
-
-    autoTable(doc, { startY: 35, head: [['Name', 'Phone', 'Status', 'Current Location']], body: tableData })
-    doc.save('Tenant_Directory.pdf')
   }
 
   // --- SELECTION ---
@@ -202,7 +195,11 @@ export function TenantListClient({ tenants, properties }: { tenants: Tenant[], p
                {properties.map(p => <SelectItem key={p} value={p}>{p}</SelectItem>)}
              </SelectContent>
           </Select>
-          <Button variant="outline" size="icon" className="h-9 w-9" onClick={exportPDF}><FileDown className="h-4 w-4" /></Button>
+          
+          {/* EXPORT BUTTON */}
+          <Button variant="outline" size="icon" className="h-9 w-9" onClick={handleExport}>
+             <FileDown className="h-4 w-4" />
+          </Button>
         </div>
       </div>
 
@@ -256,7 +253,6 @@ export function TenantListClient({ tenants, properties }: { tenants: Tenant[], p
                         <DropdownMenu>
                            <DropdownMenuTrigger asChild><Button variant="ghost" size="sm" className="h-8 w-8 p-0"><MoreHorizontal className="h-4 w-4"/></Button></DropdownMenuTrigger>
                            <DropdownMenuContent align="end">
-                               {/* ✅ UPDATED: Payment History Link */}
                                <Link href={`/dashboard/tenants/${tenant.id}`}>
                                  <DropdownMenuItem className="cursor-pointer">
                                    <CreditCard className="mr-2 h-4 w-4" /> Payment History

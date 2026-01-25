@@ -102,7 +102,11 @@ export default async function PropertyDetailsPage(props: PageProps) {
       </div>
 
       {/* INTERACTIVE UNIT LIST */}
-      <UnitListClient units={units} />
+      {/* Updated to pass propertyName for the PDF Report */}
+      <UnitListClient 
+        units={units} 
+        propertyName={property.name} 
+      />
 
     </div>
   )
