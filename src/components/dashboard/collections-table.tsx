@@ -8,8 +8,6 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Wallet, Calendar, ArrowRight, Search, Eye, CheckCircle2 } from "lucide-react"
 import { RecordPaymentModal } from "@/components/modals/record-payment-modal"
 import { InvoiceDetailsDialog } from "./invoice-details-dialog"
-
-// 1. IMPORT BOTH BUTTONS
 import { PrintInvoiceButton } from '@/components/documents/buttons/print-invoice-button'
 import { DownloadInvoiceButton } from '@/components/documents/buttons/download-invoice-button'
 
@@ -23,22 +21,17 @@ export function CollectionsTable({ invoices, onPaymentSuccess }: CollectionsTabl
   const [viewInvoice, setViewInvoice] = useState<any>(null)
   const [searchQuery, setSearchQuery] = useState("")
 
-  // --- FILTER LOGIC ---
   const filteredInvoices = invoices.filter(inv => 
     inv.leases?.tenants?.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
     inv.leases?.units?.unit_number.toLowerCase().includes(searchQuery.toLowerCase())
   )
 
-  // --- DATE FORMATTER ---
   const formatDate = (dateString: string) => {
     return new Date(dateString).toLocaleDateString('en-GB', {
-      day: '2-digit',
-      month: '2-digit',
-      year: 'numeric'
+      day: '2-digit', month: '2-digit', year: 'numeric'
     }) 
   }
 
-  // --- EMPTY STATE ---
   if (invoices.length === 0) {
     return (
       <Card className="border-dashed border-2 shadow-none bg-transparent">
@@ -60,28 +53,21 @@ export function CollectionsTable({ invoices, onPaymentSuccess }: CollectionsTabl
   return (
     <>
       <Card>
-        {/* HEADER */}
         <CardHeader className="pb-4 border-b">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-             <div className="flex items-center gap-2">
-               <CardTitle className="text-base font-semibold">
-                 Pending Payments
-               </CardTitle>
-               <Badge variant="secondary">
-                 {filteredInvoices.length} Found
-               </Badge>
-             </div>
-             
-             {/* SEARCH BAR */}
-             <div className="relative w-full sm:w-72">
-               <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
-               <Input 
-                 placeholder="Search tenant name or unit..." 
-                 className="pl-8"
-                 value={searchQuery}
-                 onChange={(e) => setSearchQuery(e.target.value)}
-               />
-             </div>
+              <div className="flex items-center gap-2">
+                <CardTitle className="text-base font-semibold">Pending Payments</CardTitle>
+                <Badge variant="secondary">{filteredInvoices.length} Found</Badge>
+              </div>
+              <div className="relative w-full sm:w-72">
+                <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
+                <Input 
+                  placeholder="Search tenant name or unit..." 
+                  className="pl-8"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                />
+              </div>
           </div>
         </CardHeader>
 
@@ -104,14 +90,11 @@ export function CollectionsTable({ invoices, onPaymentSuccess }: CollectionsTabl
 
                   return (
                     <tr key={inv.id} className="group hover:bg-muted/50 transition-colors">
-                      {/* TENANT COL */}
                       <td className="p-4">
                         <div className="flex items-center gap-2">
                           <div className="font-medium">{inv.leases?.tenants?.name}</div>
-                          
-                          {/* Wallet Badge Logic */}
                           {(inv.leases?.credit_balance > 0) && (
-                            <Badge variant="outline" className="h-5 px-1.5 gap-1 bg-green-50 text-green-700 border-green-200 dark:bg-green-900/30 dark:text-green-400 dark:border-green-800">
+                            <Badge variant="outline" className="h-5 px-1.5 gap-1 bg-green-50 text-green-700 border-green-200">
                               <Wallet className="h-3 w-3" />
                               <span className="text-[10px] font-mono">
                                 {Number(inv.leases.credit_balance).toLocaleString()}
@@ -119,27 +102,19 @@ export function CollectionsTable({ invoices, onPaymentSuccess }: CollectionsTabl
                             </Badge>
                           )}
                         </div>
-                        <div className="text-xs text-muted-foreground">
-                           Unit {inv.leases?.units?.unit_number}
-                        </div>
+                        <div className="text-xs text-muted-foreground">Unit {inv.leases?.units?.unit_number}</div>
                       </td>
-
-                      {/* DUE DATE COL */}
                       <td className="p-4">
                         <div className="flex items-center gap-2 text-muted-foreground font-medium">
                            <Calendar className="h-3 w-3" />
                            {formatDate(inv.due_date)}
                         </div>
                       </td>
-
-                      {/* BALANCE COL */}
                       <td className="p-4">
                           <div className="font-mono font-bold">
                             {balance.toLocaleString()} <span className="text-xs font-sans font-normal text-muted-foreground">RWF</span>
                           </div>
                       </td>
-
-                      {/* STATUS COL */}
                       <td className="p-4">
                           <Badge 
                             variant={isOverdue ? 'destructive' : 'secondary'}
@@ -148,28 +123,17 @@ export function CollectionsTable({ invoices, onPaymentSuccess }: CollectionsTabl
                             {inv.status}
                           </Badge>
                       </td>
-
-                      {/* ACTIONS COL */}
                       <td className="p-4 text-right">
                         <div className="flex items-center justify-end gap-1">
-                          
-                          {/* 2. DOWNLOAD BUTTON (Green Hover) */}
                           <DownloadInvoiceButton invoice={inv} variant="icon" />
-
-                          {/* 3. PRINT BUTTON (Blue Hover) */}
                           <PrintInvoiceButton invoice={inv} variant="icon" />
-
-                          {/* VIEW BUTTON */}
                           <Button
-                            size="icon"
-                            variant="ghost"
+                            size="icon" variant="ghost"
                             className="h-8 w-8 text-muted-foreground hover:text-blue-600"
                             onClick={() => setViewInvoice(inv)}
                           >
                             <Eye className="h-4 w-4" />
                           </Button>
-
-                          {/* PAY BUTTON */}
                           <Button 
                             size="sm" 
                             className="ml-2 bg-green-600 hover:bg-green-700 text-white shadow-sm h-8"
@@ -182,13 +146,6 @@ export function CollectionsTable({ invoices, onPaymentSuccess }: CollectionsTabl
                     </tr>
                   )
                 })}
-                {filteredInvoices.length === 0 && searchQuery && (
-                  <tr>
-                    <td colSpan={5} className="p-8 text-center text-muted-foreground">
-                      No results found for "{searchQuery}"
-                    </td>
-                  </tr>
-                )}
               </tbody>
             </table>
           </div>

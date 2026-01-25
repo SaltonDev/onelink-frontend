@@ -23,26 +23,25 @@ interface RecordPaymentModalProps {
 export function RecordPaymentModal({ open, setOpen, invoice, onSuccess }: RecordPaymentModalProps) {
   const [isLoading, setIsLoading] = useState(false)
   const [useWallet, setUseWallet] = useState(false)
-  const [cashAmount, setCashAmount] = useState<string>('') // Changed to string for input handling
+  const [cashAmount, setCashAmount] = useState<string>('') 
+  const [paymentDate, setPaymentDate] = useState<string>('')
 
-  // Safe Math: Handle potential nulls
+  // Safe Math
   const amountDue = invoice ? Number(invoice.amount) - (Number(invoice.amount_paid) || 0) : 0
   const walletBalance = invoice?.leases?.credit_balance || 0
   
-  // Logic: How much wallet cover?
   const walletCover = useWallet ? Math.min(amountDue, walletBalance) : 0
   const remainingDue = Math.max(0, amountDue - walletCover)
 
-  // Reset state when modal opens
   useEffect(() => {
     if (open) {
       setUseWallet(false)
-      // Initialize with the full remaining amount
       setCashAmount(amountDue.toString())
+      // Default to today
+      setPaymentDate(new Date().toISOString().split('T')[0])
     }
   }, [open, amountDue])
 
-  // Update cash input when wallet toggle changes
   useEffect(() => {
     setCashAmount(remainingDue.toString())
   }, [useWallet, remainingDue])
@@ -50,8 +49,22 @@ export function RecordPaymentModal({ open, setOpen, invoice, onSuccess }: Record
   async function handleSubmit(formData: FormData) {
     setIsLoading(true)
     
-    // FORCE the correct amount from our state
+    // 1. FORCE the correct amount
     formData.set('amount', cashAmount)
+    
+    // 2. FORCE the payment date
+    formData.set('payment_date', paymentDate)
+
+    // 3. FORCE the Invoice ID (THE FIX)
+    if (invoice?.id) {
+        formData.set('invoice_id', invoice.id)
+    } else {
+        toast.error("Error: Invoice ID missing. Close and try again.")
+        setIsLoading(false)
+        return
+    }
+
+    // 4. Handle Wallet
     if (useWallet) formData.set('use_wallet', 'on')
 
     toast.promise(recordPayment(formData), {
@@ -82,8 +95,6 @@ export function RecordPaymentModal({ open, setOpen, invoice, onSuccess }: Record
         </DialogHeader>
         
         <form action={handleSubmit} className="space-y-5 mt-2">
-          {/* Robust ID passing */}
-          <input type="hidden" name="invoice_id" value={invoice.id} />
           
           {/* 1. WALLET SECTION */}
           {walletBalance > 0 && (
@@ -115,9 +126,37 @@ export function RecordPaymentModal({ open, setOpen, invoice, onSuccess }: Record
              )}
           </div>
 
-          {/* 3. CASH INPUT (Standard Input) */}
+          <div className="grid grid-cols-2 gap-4">
+             {/* 3. DATE INPUT */}
+             <div className="space-y-2">
+               <Label>Payment Date</Label>
+               <Input 
+                 type="date" 
+                 value={paymentDate}
+                 onChange={(e) => setPaymentDate(e.target.value)}
+                 required
+               />
+             </div>
+
+             {/* 4. METHOD */}
+             <div className="space-y-2">
+               <Label>Method</Label>
+               <Select name="method" defaultValue="MOMO">
+                 <SelectTrigger>
+                   <SelectValue placeholder="Select" />
+                 </SelectTrigger>
+                 <SelectContent>
+                   <SelectItem value="MOMO">Mobile Money</SelectItem>
+                   <SelectItem value="CASH">Cash</SelectItem>
+                   <SelectItem value="BANK">Bank Transfer</SelectItem>
+                 </SelectContent>
+               </Select>
+             </div>
+          </div>
+
+          {/* 5. CASH INPUT */}
           <div className="space-y-2">
-            <Label>Amount Received (Cash/MoMo)</Label>
+            <Label>Amount Received</Label>
             <div className="relative">
                 <span className="absolute left-3 top-2.5 text-gray-500 font-mono">RWF</span>
                 <Input 
@@ -132,22 +171,8 @@ export function RecordPaymentModal({ open, setOpen, invoice, onSuccess }: Record
           </div>
 
           <div className="space-y-2">
-            <Label>Payment Method</Label>
-            <Select name="method" defaultValue="MOMO">
-              <SelectTrigger>
-                <SelectValue placeholder="Select method" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="MOMO">Mobile Money</SelectItem>
-                <SelectItem value="CASH">Cash</SelectItem>
-                <SelectItem value="BANK">Bank Transfer</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div className="space-y-2">
-             <Label>Notes</Label>
-             <Input name="notes" placeholder="Transaction ID..." />
+             <Label>Notes (Optional)</Label>
+             <Input name="notes" placeholder="Transaction ID or Ref..." />
           </div>
 
           <DialogFooter>

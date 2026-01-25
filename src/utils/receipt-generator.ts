@@ -8,40 +8,41 @@ export const generateReceiptPDF = (invoice: any) => {
   const primaryColor = [30, 41, 59] as [number, number, number] 
   const accentColor = [22, 163, 74] as [number, number, number] 
   const warningColor = [234, 88, 12] as [number, number, number] 
+  
   const pageWidth = doc.internal.pageSize.width
-  const pageHeight = doc.internal.pageSize.height
+  const pageHeight = doc.internal.pageSize.height // <--- FIXED: Added this back
   const margin = 14
 
-  // --- DATA PREP ---
+  // --- DATA EXTRACTION ---
   const fullRentAmount = Number(invoice.amount || 0)
-  const paidAmount = Number(invoice.amount_paid || 0)
+  const paidAmount = Number(invoice.amount_paid || 0) // Paid THIS Transaction
 
-  // 1. CALCULATE BALANCE
-  // CRITICAL FIX: Use the 'balance' passed explicitly from the client if it exists.
-  // This allows the Tenant History to pass the true cumulative balance (-100k).
-  let balance = 0
-  if (invoice.balance !== undefined) {
-      balance = Number(invoice.balance)
-  } else {
-      // Fallback for standalone receipt generation
-      balance = fullRentAmount - paidAmount
-  }
+  // Use the detailed accounting context we calculated in the client
+  // If these are missing (e.g. old code), fallback to 0
+  const openingBalance = Number(invoice.opening_balance || 0)
+  const allocatedRent = Number(invoice.allocated_rent || 0)
+  const allocatedWallet = Number(invoice.allocated_wallet || 0)
+  const closingBalance = Number(invoice.closing_balance || 0)
 
-  // 2. STATUS FLAGS
-  // Overpayment = Negative Balance
-  const isOverpayment = balance < 0
-  const isPartial = balance > 0 && invoice.status !== 'PAID'
+  // Status Detection based on Closing Balance
+  // If Closing Balance > 0.1 -> Still owe money (Partial)
+  // If Closing Balance < -0.1 -> Credit
+  const isPartial = closingBalance > 0.1
+  const isCredit = closingBalance < -0.1
 
-  // Visuals
   const activeColor = isPartial ? warningColor : accentColor
-  // Overpayment also gets "CREDIT" watermark
-  const watermarkText = isPartial ? "PARTIAL" : (isOverpayment ? "CREDIT" : "PAID")
+  const watermarkText = isPartial ? "PARTIAL" : (isCredit ? "CREDIT" : "PAID")
 
-  const paymentDate = invoice.payment_date 
-    ? new Date(invoice.payment_date).toLocaleDateString('en-GB')
-    : new Date().toLocaleDateString('en-GB')
+  // Date Formatting
+  const rawDate = invoice.due_date || invoice.payment_date || new Date().toISOString()
+  const formatDate = (dateString: string) => {
+      const date = new Date(dateString)
+      if (isNaN(date.getTime())) return new Date().toLocaleDateString('en-GB')
+      return date.toLocaleDateString('en-GB')
+  }
+  const paymentDateFormatted = formatDate(invoice.payment_date || new Date().toISOString())
 
-  // --- 1. HEADER SECTION ---
+  // --- HEADER ---
   doc.setFontSize(18); doc.setFont("helvetica", "bold"); doc.setTextColor(...primaryColor)
   doc.text("OneLink PMS", margin, 20)
   doc.setFontSize(9); doc.setFont("helvetica", "normal"); doc.setTextColor(100)
@@ -49,18 +50,16 @@ export const generateReceiptPDF = (invoice: any) => {
 
   doc.setFontSize(24); doc.setTextColor(...primaryColor)
   doc.text("RECEIPT", pageWidth - margin, 20, { align: 'right' })
-  doc.setFillColor(240, 240, 240); doc.setDrawColor(200); doc.circle(pageWidth - margin - 15, 35, 12, 'FD')
-  doc.setFontSize(8); doc.setTextColor(150); doc.text("LOGO", pageWidth - margin - 15, 36, { align: 'center' })
 
-  // --- 2. INFO BAR ---
+  // --- INFO BAR ---
   const infoY = 55
   doc.setFontSize(10); doc.setTextColor(0)
   doc.setFont("helvetica", "bold"); doc.text("Receipt #:", pageWidth - 60, infoY, { align: 'right' })
   doc.setFont("helvetica", "normal"); doc.text(`REC-${invoice.id.slice(0, 6).toUpperCase()}`, pageWidth - margin, infoY, { align: 'right' })
   doc.setFont("helvetica", "bold"); doc.text("Payment Date:", pageWidth - 60, infoY + 5, { align: 'right' })
-  doc.setFont("helvetica", "normal"); doc.text(paymentDate, pageWidth - margin, infoY + 5, { align: 'right' })
+  doc.setFont("helvetica", "normal"); doc.text(paymentDateFormatted, pageWidth - margin, infoY + 5, { align: 'right' })
 
-  // --- 3. BILL TO ---
+  // --- BILL TO ---
   const billToY = 60
   doc.setFillColor(...primaryColor); doc.rect(margin, billToY, 80, 6, 'F') 
   doc.setFontSize(9); doc.setTextColor(255); doc.setFont("helvetica", "bold"); doc.text("BILL TO", margin + 2, billToY + 4)
@@ -69,24 +68,33 @@ export const generateReceiptPDF = (invoice: any) => {
   doc.setFont("helvetica", "normal"); doc.setFontSize(9)
   doc.text(`Unit ${invoice.leases?.units?.unit_number || 'N/A'}`, margin, billToY + 17)
 
-  // --- 4. WATERMARK ---
+  // --- WATERMARK ---
   doc.saveGraphicsState()
   doc.setFontSize(60)
-  if (isPartial) doc.setTextColor(255, 237, 213) // Orange
-  else doc.setTextColor(220, 252, 231) // Green (for Paid & Credit)
-  
+  if (isPartial) doc.setTextColor(255, 237, 213) 
+  else doc.setTextColor(220, 252, 231) 
   doc.text(watermarkText, 105, 120, { align: 'center', angle: 45 })
   doc.restoreGraphicsState()
 
-  // --- 5. DATA TABLE ---
-  const rentPeriod = new Date(invoice.due_date).toLocaleString('default', { month: 'long', year: 'numeric' })
+  // --- DATA TABLE (SMART DESCRIPTION) ---
+  const rentDateObj = new Date(rawDate)
+  const rentPeriod = !isNaN(rentDateObj.getTime()) 
+    ? rentDateObj.toLocaleString('default', { month: 'long', year: 'numeric' }) 
+    : 'Current Period'
+
+  // SMART DESCRIPTION
   let description = `Rent Payment - ${rentPeriod}`
-  if (isPartial) description = `Part Payment - ${rentPeriod} (Total Due: ${fullRentAmount.toLocaleString()})`
-  else if (isOverpayment) description = `Rent + Advance Payment - ${rentPeriod}`
+  if (allocatedWallet > 0 && allocatedRent > 0) {
+      description = `Rent Settlement + Credit Deposit`
+  } else if (allocatedWallet > 0 && allocatedRent === 0) {
+      description = `Wallet Credit Deposit`
+  } else if (isPartial) {
+      description = `Partial Rent Payment`
+  }
 
   autoTable(doc, {
     startY: 90,
-    head: [['DESCRIPTION', 'TOTAL DUE', 'PAID NOW']],
+    head: [['DESCRIPTION', 'TOTAL INVOICE', 'PAID NOW']],
     body: [[description, `${fullRentAmount.toLocaleString()}`, `${paidAmount.toLocaleString()}`]],
     theme: 'grid',
     headStyles: { fillColor: primaryColor, textColor: 255, fontStyle: 'bold', halign: 'center' },
@@ -94,56 +102,73 @@ export const generateReceiptPDF = (invoice: any) => {
     styles: { fontSize: 9, cellPadding: 4, lineColor: [200, 200, 200], lineWidth: 0.1 }
   })
 
-  // --- 6. TOTALS SECTION ---
+  // --- TOTALS ---
   // @ts-ignore
   let finalY = doc.lastAutoTable.finalY + 10
   const rightColX = pageWidth - 50
   const rightValX = pageWidth - margin
 
+  // 1. Previous Balance (Context)
   doc.setFontSize(9); doc.setTextColor(100)
-  doc.text("TOTAL INVOICE", rightColX, finalY, { align: 'right' })
-  doc.setTextColor(0)
-  doc.text(`${fullRentAmount.toLocaleString()} RWF`, rightValX, finalY, { align: 'right' })
+  doc.text("Previous Balance:", rightColX, finalY, { align: 'right' })
+  doc.text(`${openingBalance.toLocaleString()} RWF`, rightValX, finalY, { align: 'right' })
 
+  // 2. Amount Paid (Action)
   finalY += 6
   doc.setFontSize(11); doc.setFont("helvetica", "bold"); doc.setTextColor(0) 
-  doc.text("AMOUNT PAID", rightColX, finalY, { align: 'right' })
+  doc.text("AMOUNT PAID:", rightColX, finalY, { align: 'right' })
   doc.setTextColor(...activeColor) 
   doc.text(`${paidAmount.toLocaleString()} RWF`, rightValX, finalY, { align: 'right' })
 
-  // --- BALANCE LOGIC ---
+  // 3. Closing Balance (Result)
+  finalY += 8
+  doc.setDrawColor(200); doc.line(pageWidth - 80, finalY - 5, pageWidth - margin, finalY - 5)
+  
   if (isPartial) {
-      finalY += 8
-      doc.setDrawColor(200); doc.line(pageWidth - 80, finalY - 5, pageWidth - margin, finalY - 5)
       doc.setFontSize(10); doc.setTextColor(220, 38, 38) // Red
-      doc.text("BALANCE DUE", rightColX, finalY, { align: 'right' })
-      doc.text(`${balance.toLocaleString()} RWF`, rightValX, finalY, { align: 'right' })
-  } else if (isOverpayment) {
-      finalY += 8
-      doc.setDrawColor(200); doc.line(pageWidth - 80, finalY - 5, pageWidth - margin, finalY - 5)
+      doc.text("REMAINING DUE:", rightColX, finalY, { align: 'right' })
+      doc.text(`${closingBalance.toLocaleString()} RWF`, rightValX, finalY, { align: 'right' })
+  } else if (isCredit) {
       doc.setFontSize(10); doc.setTextColor(22, 163, 74) // Green
-      doc.text("CREDIT BALANCE", rightColX, finalY, { align: 'right' })
-      // Use Math.abs to remove the minus sign
-      doc.text(`${Math.abs(balance).toLocaleString()} RWF`, rightValX, finalY, { align: 'right' })
+      doc.text("CREDIT BALANCE:", rightColX, finalY, { align: 'right' })
+      doc.text(`${Math.abs(closingBalance).toLocaleString()} RWF`, rightValX, finalY, { align: 'right' })
   } else {
-      finalY += 6
-      doc.setFontSize(9); doc.setTextColor(100)
-      doc.text("BALANCE", rightColX, finalY, { align: 'right' })
+      doc.setFontSize(9); doc.setTextColor(100) // Grey
+      doc.text("BALANCE:", rightColX, finalY, { align: 'right' })
       doc.text("0 RWF", rightValX, finalY, { align: 'right' })
   }
 
-  // --- 7. FOOTER ---
+  // --- FOOTER NOTE (THE EXPLANATION) ---
   // @ts-ignore
-  const noteY = doc.lastAutoTable.finalY + 20
+  const noteY = doc.lastAutoTable.finalY + 30
   doc.setFontSize(10); doc.setTextColor(0); doc.setFont("helvetica", "bold")
-  doc.text("Thank you for your payment!", margin, noteY)
+  doc.text("Payment Breakdown:", margin, noteY)
   
-  doc.setFontSize(8); doc.setFont("helvetica", "italic"); doc.setTextColor(100)
-  if (isPartial) doc.text("Note: Partial payment. Please clear balance.", margin, noteY + 6)
-  else if (isOverpayment) doc.text("Note: Overpayment recorded as credit for next month.", margin, noteY + 6)
-  else doc.text("Note: Payment received in full.", margin, noteY + 6)
+  doc.setFontSize(8); doc.setFont("helvetica", "normal"); doc.setTextColor(80)
+  
+  // Construct the narrative
+  let narrative = ""
+  
+  if (allocatedRent > 0) {
+      narrative += `• ${allocatedRent.toLocaleString()} RWF was applied to clear rent debt.\n`
+  }
+  if (allocatedWallet > 0) {
+      narrative += `• ${allocatedWallet.toLocaleString()} RWF was added to your wallet credit.\n`
+  }
+  
+  if (isPartial) {
+      narrative += `• You still owe ${closingBalance.toLocaleString()} RWF. Please clear this balance soon.`
+  } else if (isCredit) {
+      narrative += `• You have a total credit of ${Math.abs(closingBalance).toLocaleString()} RWF for future invoices.`
+  } else {
+      narrative += `• Your account for this period is fully settled.`
+  }
 
+  doc.text(narrative, margin, noteY + 6)
+
+  // Footer Line
   doc.setDrawColor(...primaryColor); doc.setLineWidth(2)
   doc.line(margin, pageHeight - margin, pageWidth - margin, pageHeight - margin)
+  
   doc.save(`Receipt-${invoice.id.slice(0,6)}.pdf`)
 }

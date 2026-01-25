@@ -5,12 +5,8 @@ import { createClient } from '@/utils/supabase/client'
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import {
-  Table, TableBody, TableCell, TableHead, TableHeader, TableRow 
-} from "@/components/ui/table"
-import {
-  Dialog, DialogContent, DialogHeader, DialogTitle
-} from "@/components/ui/dialog"
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Smartphone, Banknote, Landmark, ArrowUpRight, FileDown, Eye, Loader2 } from "lucide-react"
 import { DownloadReceiptButton } from '@/components/documents/buttons/download-receipt-button'
 import { generateGroupedStatementPDF } from '@/utils/statement-generator'
@@ -20,40 +16,87 @@ export function TenantHistoryClient({ payments, tenantName }: { payments: any[],
   const [isExporting, setIsExporting] = useState(false)
   const supabase = createClient()
 
-  // --- DATA TRANSLATOR (FIXED FOR OVERPAYMENT) ---
-  const prepareReceiptData = (payment: any) => {
-    const leaseRent = Number(payment.leases?.rent_amount || 0)
-    const invoiceTotal = Number(payment.invoices?.amount || 0)
-    const fullAmount = invoiceTotal > 0 ? invoiceTotal : (leaseRent > 0 ? leaseRent : Number(payment.amount))
+  // --- 1. THE NEW "TIME TRAVEL" DATA PREPARER ---
+  const prepareReceiptData = (currentPayment: any) => {
+    const leaseRent = Number(currentPayment.leases?.rent_amount || 0)
+    const invoiceTotal = Number(currentPayment.invoices?.amount || 0)
     
-    // CRITICAL FIX: Get the CUMULATIVE amount paid from the invoice (e.g. 300,000)
-    // If not available (e.g. separate payment), fallback to just this transaction
-    const totalPaidOnInvoice = Number(payment.invoices?.amount_paid || payment.amount)
+    // 1. Total Bill Amount (The "Goal")
+    const fullAmount = invoiceTotal > 0 ? invoiceTotal : (leaseRent > 0 ? leaseRent : Number(currentPayment.amount))
+
+    // 2. TIMELINE ANALYSIS
+    // We need to know:
+    // A. What was paid BEFORE this transaction? (To find Opening Balance)
+    // B. What is the cumulative total INCLUDING this transaction? (To find Closing Balance)
     
-    // Calculate the REAL global balance (e.g. 200k - 300k = -100k)
-    const realBalance = fullAmount - totalPaidOnInvoice
+    // Filter payments for THIS invoice only
+    const invoicePayments = payments.filter(p => p.invoice_id === currentPayment.invoice_id)
+    
+    // Sort them chronologically (Oldest first) so we can replay history
+    invoicePayments.sort((a, b) => new Date(a.payment_date).getTime() - new Date(b.payment_date).getTime())
+
+    let paidBeforeThis = 0
+    let foundCurrent = false
+
+    for (const p of invoicePayments) {
+        if (p.id === currentPayment.id) {
+            foundCurrent = true
+            break // We stop right before adding the current one to "paidBefore"
+        }
+        paidBeforeThis += Number(p.amount)
+    }
+
+    // 3. ACCOUNTING MATH
+    const openingBalance = fullAmount - paidBeforeThis // What they owed when they walked in
+    const amountPaidNow = Number(currentPayment.amount)
+    
+    // Logic: How much of THIS payment went to Rent vs Wallet?
+    // If Opening Balance was 50k, and I pay 250k:
+    // -> 50k goes to Rent (Settlement)
+    // -> 200k goes to Wallet (Excess)
+    let allocatedToRent = 0
+    let allocatedToWallet = 0
+
+    if (openingBalance <= 0) {
+        // Only happens if they were already fully paid and are paying MORE (pure credit)
+        allocatedToRent = 0
+        allocatedToWallet = amountPaidNow
+    } else {
+        if (amountPaidNow >= openingBalance) {
+            allocatedToRent = openingBalance // Pays off the remaining debt
+            allocatedToWallet = amountPaidNow - openingBalance // Rest is credit
+        } else {
+            allocatedToRent = amountPaidNow // All of it goes to rent (still partial)
+            allocatedToWallet = 0
+        }
+    }
+
+    // 4. Closing Balance (After this payment)
+    const closingBalance = openingBalance - amountPaidNow
 
     return {
-      id: payment.id || 'REC',
-      payment_date: payment.payment_date || new Date().toISOString(),
-      due_date: payment.payment_date || new Date().toISOString(),
-      amount_paid: Number(payment.amount) || 0, // Paid NOW (150k)
-      amount: fullAmount,                       // Total Bill (200k)
+      id: currentPayment.id || 'REC',
+      payment_date: currentPayment.payment_date || new Date().toISOString(),
+      due_date: currentPayment.payment_date || new Date().toISOString(),
       
-      // Pass the calculated global balance explicitly
-      balance: realBalance, 
+      amount: fullAmount,           // Total Bill (200k)
+      amount_paid: amountPaidNow,   // What they paid TODAY (250k)
       
-      status: payment.invoices?.status || 'PAID',
+      // NEW: Accounting Context passed to PDF
+      opening_balance: openingBalance,    // Owed 50k
+      allocated_rent: allocatedToRent,    // Cleared 50k
+      allocated_wallet: allocatedToWallet,// Credit 200k
+      closing_balance: closingBalance,    // Final Result (-200k)
+
       leases: {
-        tenants: { name: payment.leases?.tenants?.name || tenantName || "Valued Tenant" },
-        units: { unit_number: payment.leases?.units?.unit_number || 'N/A' },
+        tenants: { name: currentPayment.leases?.tenants?.name || tenantName || "Valued Tenant" },
+        units: { unit_number: currentPayment.leases?.units?.unit_number || 'N/A' },
         rent_amount: leaseRent
       }
     }
   }
 
-  // ... (Keep existing Grouping/Sorting/Export logic exactly the same) ...
-  // --- GROUPING & SORTING LOGIC ---
+  // --- (GROUPING LOGIC REMAINS SAME) ---
   const { groupedPayments, sortedMonths } = useMemo(() => {
     const groups: Record<string, any[]> = {}
     payments.forEach(p => {
@@ -76,6 +119,7 @@ export function TenantHistoryClient({ payments, tenantName }: { payments: any[],
     }
   }
 
+  // --- EXPORT FUNCTION ---
   const exportStatement = async () => {
     setIsExporting(true)
     const totalPaid = payments.reduce((sum, p) => sum + Number(p.amount), 0)
@@ -91,9 +135,10 @@ export function TenantHistoryClient({ payments, tenantName }: { payments: any[],
             }
         } catch (err) { console.error(err) }
     }
+
     const entityInfo = [`Tenant: ${tenantName}`, `Generated: ${new Date().toLocaleDateString('en-GB')}`]
     if (officialRent > 0) entityInfo.splice(1, 0, `Monthly Rent: ${officialRent.toLocaleString()} RWF`)
-    
+
     const groupsForPdf = sortedMonths.map(month => {
         const monthPayments = groupedPayments[month]
         const monthlySubtotal = monthPayments.reduce((sum: number, p: any) => sum + Number(p.amount), 0)
@@ -184,6 +229,7 @@ export function TenantHistoryClient({ payments, tenantName }: { payments: any[],
           })}
         </div>
       </CardContent>
+      {/* DIALOG USES THE SAME PREPARE LOGIC */}
       <Dialog open={!!selectedPayment} onOpenChange={(open) => !open && setSelectedPayment(null)}>
          <DialogContent>
             <DialogHeader><DialogTitle>Transaction Details</DialogTitle></DialogHeader>
