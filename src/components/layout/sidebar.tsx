@@ -13,7 +13,7 @@ const routes = [
   { label: 'Properties & Units', icon: Building2, href: '/dashboard/properties', color: "text-violet-500" },
   { label: 'Tenants & Leases', icon: Users, href: '/dashboard/tenants', color: "text-pink-700" },
   { label: 'Finance', icon: Wallet, href: '/dashboard/invoices', color: "text-emerald-500" },
-  { label: 'Activity Log', icon: Settings, href: '/dashboard/settings', color: "text-orange-500" },
+  { label: 'Settings', icon: Settings, href: '/dashboard/settings', color: "text-orange-500" },
 ]
 
 export function Sidebar() {
